@@ -1,0 +1,8 @@
+# Patch Notes
+
+06/03/2026 - Initial Updates
+- Built in performance increases/fixes
+- Added experimental 'Performance' setting
+- Added 'Stream Title Hover' setting 
+- Onboarding process overhaul
+- Fixed a bug causing emotes to be entirely disabled in the chatbox 
