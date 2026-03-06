@@ -37,11 +37,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: 7tvfixed-${{ github.ref_name }}
-          path: release-builds/*.zip
+          path: release-builds/7tvfixed.zip
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: release-builds/*.zip
+          files: release-builds/7tvfixed.zip
           generate_release_notes: true

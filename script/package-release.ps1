@@ -16,7 +16,7 @@ $packageJson = Get-Content (Join-Path $repoRoot "package.json") | ConvertFrom-Js
 $version = if ($VersionLabel) { $VersionLabel } else { "v$($packageJson.version)" }
 
 $stageDirName = "7tvfixed"
-$packageName = "7tvfixed-$version"
+$packageName = "7tvfixed"
 $stageDir = Join-Path $releaseDir $stageDirName
 $zipPath = Join-Path $releaseDir "$packageName.zip"
 
@@ -25,6 +25,8 @@ New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 if (Test-Path $stageDir) {
 	Remove-Item -Recurse -Force $stageDir
 }
+
+Get-ChildItem -Path $releaseDir -Filter "*.zip" -ErrorAction SilentlyContinue | Remove-Item -Force
 
 if (Test-Path $zipPath) {
 	Remove-Item -Force $zipPath
@@ -35,4 +37,4 @@ Copy-Item -Path (Join-Path $distDir "*") -Destination $stageDir -Recurse -Force
 
 Compress-Archive -Path $stageDir -DestinationPath $zipPath -CompressionLevel Optimal
 
-Write-Output "Created $zipPath"
+Write-Output "Created $zipPath for $version"
