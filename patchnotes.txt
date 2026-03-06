@@ -1,6 +1,12 @@
-# Patch Notes
+Full Patch Notes
 
-06/03/2026 - Initial Updates
+06/03/2026 - Settings update and bug fix
+- Added '7TVFixed' category within 7TV settings
+- Added 'Middle Click To Profile' setting
+- Added 'Disable Front Page' setting
+- Fixed subscription anniversay messages not being sent
+
+05/03/2026 - Initial Updates
 - Built in performance increases/fixes
 - Added experimental 'Performance' setting
 - Added 'Stream Title Hover' setting 
