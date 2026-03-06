@@ -36,7 +36,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 7TVFixed-${{ github.ref_name }}
+          name: 7tvfixed-${{ github.ref_name }}
           path: release-builds/*.zip
 
       - name: Upload release asset

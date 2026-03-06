@@ -15,7 +15,7 @@ Use the latest build from the Releases page instead:
 
 -   Open [Releases](https://github.com/Fickslayshun/seventvfixed/releases)
 -   Open the newest release
--   Under `Assets`, download the `7TVFixed-...zip` file
+-   Under `Assets`, download the `7tvfixed-...zip` file
 -   Extract it somewhere you want to keep it
 
 ## Install

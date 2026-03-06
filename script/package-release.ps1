@@ -15,8 +15,9 @@ if (-not (Test-Path $distDir)) {
 $packageJson = Get-Content (Join-Path $repoRoot "package.json") | ConvertFrom-Json
 $version = if ($VersionLabel) { $VersionLabel } else { "v$($packageJson.version)" }
 
-$packageName = "7TVFixed-$version"
-$stageDir = Join-Path $releaseDir $packageName
+$stageDirName = "7tvfixed"
+$packageName = "7tvfixed-$version"
+$stageDir = Join-Path $releaseDir $stageDirName
 $zipPath = Join-Path $releaseDir "$packageName.zip"
 
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
