@@ -1,7 +1,3 @@
-param(
-	[string]$VersionLabel = ""
-)
-
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -11,9 +7,6 @@ $releaseDir = Join-Path $repoRoot "release-builds"
 if (-not (Test-Path $distDir)) {
 	throw "dist directory not found. Run 'yarn build:prod' first."
 }
-
-$packageJson = Get-Content (Join-Path $repoRoot "package.json") | ConvertFrom-Json
-$version = if ($VersionLabel) { $VersionLabel } else { "v$($packageJson.version)" }
 
 $stageDirName = "7tvfixed"
 $packageName = "7tvfixed"
@@ -37,4 +30,4 @@ Copy-Item -Path (Join-Path $distDir "*") -Destination $stageDir -Recurse -Force
 
 Compress-Archive -Path $stageDir -DestinationPath $zipPath -CompressionLevel Optimal
 
-Write-Output "Created $zipPath for $version"
+Write-Output "Created $zipPath"

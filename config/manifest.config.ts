@@ -25,7 +25,7 @@ export async function getManifest(opt: ManifestOptions): Promise<Manifest.WebExt
 			opt.dev ? " (Dev)" : "",
 		)
 		.trim();
-	const versionName = (opt.version + (opt.branch ? ` ${opt.branch}` : "")).trim();
+	const versionName = extensionName;
 
 	const manifest = {
 		manifest_version: 3,

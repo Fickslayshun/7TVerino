@@ -1,7 +1,7 @@
 {
 	"name": "seventv",
-	"displayName": "7TV",
-	"description": "Improve your viewing experience on Twitch & YouTube with new features, emotes, vanity and performance.",
+	"displayName": "7TVFixed",
+	"description": "Unofficial 7TV fork focused on performance and QoL.",
 	"private": true,
 	"version": "3.1.16",
 	"dev_version": "2.0",

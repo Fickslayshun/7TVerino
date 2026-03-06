@@ -2,8 +2,8 @@ name: Release Build
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -31,17 +31,46 @@ jobs:
 
       - name: Package release zip
         shell: pwsh
-        run: ./script/package-release.ps1 -VersionLabel "${{ github.ref_name }}"
+        run: ./script/package-release.ps1
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 7tvfixed-${{ github.ref_name }}
+          name: 7tvfixed
           path: release-builds/7tvfixed.zip
 
-      - name: Upload release asset
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: release-builds/7tvfixed.zip
-          generate_release_notes: true
+      - name: Prepare release notes
+        shell: pwsh
+        run: |
+          if (Test-Path "./patchnotes.txt") {
+            Copy-Item "./patchnotes.txt" "./release-builds/release-notes.txt" -Force
+          }
+          else {
+            Set-Content "./release-builds/release-notes.txt" "Latest automatic build from main."
+          }
+
+      - name: Recreate rolling release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $repo = "${{ github.repository }}"
+          $stableTag = "7tvfixed"
+          $releases = gh release list --repo $repo --limit 100 --json tagName | ConvertFrom-Json
+
+          foreach ($release in $releases) {
+            if ($release.tagName -ne $stableTag) {
+              gh release delete $release.tagName --repo $repo --cleanup-tag -y
+            }
+          }
+
+          gh release view $stableTag --repo $repo *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release delete $stableTag --repo $repo --cleanup-tag -y
+          }
+
+          gh release create $stableTag "release-builds/7tvfixed.zip" `
+            --repo $repo `
+            --title "7tvfixed" `
+            --notes-file "./release-builds/release-notes.txt" `
+            --latest

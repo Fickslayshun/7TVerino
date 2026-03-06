@@ -6,16 +6,16 @@ This repository is separate from the official 7TV extension. It keeps source cod
 
 [![Download Latest Build](https://img.shields.io/badge/Download-Latest%20Build-2ea44f?style=for-the-badge)](https://github.com/Fickslayshun/seventvfixed/releases/latest)
 [![All Releases](https://img.shields.io/badge/GitHub-Releases-1f6feb?style=for-the-badge)](https://github.com/Fickslayshun/seventvfixed/releases)
+[![Direct Download](https://img.shields.io/badge/Direct%20Download-7tvfixed.zip-black?style=for-the-badge)](https://github.com/Fickslayshun/seventvfixed/releases/download/7tvfixed/7tvfixed.zip)
 
 ## Download
 
 If you just want to install the extension, do not download the source code zip from the repository page.
 
-Use the latest build from the Releases page instead:
+Use the stable `7tvfixed` release instead:
 
--   Open [Releases](https://github.com/Fickslayshun/seventvfixed/releases)
--   Open the newest release
--   Under `Assets`, download `7tvfixed.zip`
+-   Open [the `7tvfixed` release](https://github.com/Fickslayshun/seventvfixed/releases/tag/7tvfixed)
+-   Or download [7tvfixed.zip](https://github.com/Fickslayshun/seventvfixed/releases/download/7tvfixed/7tvfixed.zip) directly
 -   Extract it somewhere you want to keep it
 
 ## Install
@@ -44,6 +44,8 @@ yarn release:build
 ```
 
 That creates a release zip in `release-builds/`.
+
+Every push to `main` also refreshes the public GitHub release tagged `7tvfixed`.
 
 ## Notes
 
