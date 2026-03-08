@@ -49,6 +49,30 @@
 					</div>
 				</div>
 
+				<div v-if="suspiciousUser" class="seventv-user-card-low-trust">
+					<div class="seventv-user-card-low-trust-head">
+						<div class="seventv-user-card-low-trust-title">
+							<ShieldIcon />
+							<p>Suspicious User</p>
+							<span>{{ suspiciousUserStatusLabel }}</span>
+						</div>
+						<span v-if="suspiciousUser.types.length" class="seventv-user-card-low-trust-type">
+							{{ suspiciousUser.types.join(", ") }}
+						</span>
+					</div>
+					<div class="seventv-user-card-low-trust-details">
+						<p v-if="suspiciousUser.banEvasion.likelihood">
+							<strong>Ban Evasion:</strong> {{ formatLikelihood(suspiciousUser.banEvasion.likelihood) }}
+						</p>
+						<p v-if="suspiciousUser.sharedBanChannels.length">
+							<strong>Shared Bans:</strong> {{ suspiciousUser.sharedBanChannels.length }}
+						</p>
+						<p v-if="suspiciousUser.treatment.updatedBy">
+							<strong>Updated By:</strong> {{ suspiciousUser.treatment.updatedBy }}
+						</p>
+					</div>
+				</div>
+
 				<div class="seventv-user-card-interactive">
 					<div class="seventv-user-card-metrics">
 						<p v-if="data.targetUser.createdAt">
@@ -134,7 +158,7 @@ import { copyText } from "@/common/Clipboard";
 import { log } from "@/common/Logger";
 import { convertTwitchMessage } from "@/common/Transform";
 import { convertTwitchBadge } from "@/common/Transform";
-import { ChatMessage, ChatUser } from "@/common/chat/ChatMessage";
+import { ChatMessage, ChatUser, LowTrustUserProperties } from "@/common/chat/ChatMessage";
 import { useChannelContext } from "@/composable/channel/useChannelContext";
 import { useChatHighlights } from "@/composable/chat/useChatHighlights";
 import { useChatMessages } from "@/composable/chat/useChatMessages";
@@ -155,6 +179,7 @@ import CakeIcon from "@/assets/svg/icons/CakeIcon.vue";
 import CloseIcon from "@/assets/svg/icons/CloseIcon.vue";
 import CopyIcon from "@/assets/svg/icons/CopyIcon.vue";
 import HeartIcon from "@/assets/svg/icons/HeartIcon.vue";
+import ShieldIcon from "@/assets/svg/icons/ShieldIcon.vue";
 import StarIcon from "@/assets/svg/icons/StarIcon.vue";
 import LogoTwitch from "@/assets/svg/logos/LogoTwitch.vue";
 import Badge from "./Badge.vue";
@@ -256,6 +281,29 @@ const showModerationOrPersonalActions = computed(() => {
 		(ctx.actor.roles.has("MODERATOR") && !data.targetUser.isModerator) ||
 		ctx.actor.roles.has("BROADCASTER")
 	);
+});
+
+const suspiciousUser = computed<LowTrustUserProperties | null>(() => {
+	const targetID = data.targetUser.id || props.target.id;
+	if (!targetID) return null;
+
+	const lowTrust = messages.lowTrustUsers[targetID];
+	if (!lowTrust || lowTrust.treatment.type === "NONE") return null;
+
+	return lowTrust;
+});
+
+const suspiciousUserStatusLabel = computed(() => {
+	if (!suspiciousUser.value) return "";
+
+	switch (suspiciousUser.value.treatment.type) {
+		case "RESTRICTED":
+			return "Restricted";
+		case "ACTIVE_MONITORING":
+			return "Monitoring";
+		default:
+			return "";
+	}
 });
 
 function getActiveTimeline(): Record<string, ChatMessage[]> {
@@ -477,6 +525,19 @@ function formatDateToString(date?: string): string {
 	return date ? formatDate("PPP")(new Date(date)) : "";
 }
 
+function formatLikelihood(likelihood: LowTrustUserProperties["banEvasion"]["likelihood"]): string {
+	switch (likelihood) {
+		case "LIKELY":
+			return "Likely";
+		case "POSSIBLE":
+			return "Possible";
+		case "UNLIKELY":
+			return "Unlikely";
+		default:
+			return likelihood;
+	}
+}
+
 watchEffect(async () => {
 	if (!apollo.value) return;
 
@@ -656,9 +717,10 @@ main.seventv-user-card-container {
 .seventv-user-card-header {
 	grid-area: header;
 	display: grid;
-	grid-template-rows: 1fr auto;
+	grid-template-rows: auto auto auto;
 	grid-template-areas:
 		"identity"
+		"trust"
 		"states";
 
 	.seventv-user-card-menuactions {
@@ -775,6 +837,77 @@ main.seventv-user-card-container {
 			> * {
 				cursor: pointer;
 				grid-row: 1;
+			}
+		}
+	}
+
+	.seventv-user-card-low-trust {
+		grid-area: trust;
+		display: grid;
+		row-gap: 0.6rem;
+		padding: 0.9rem 1rem 1rem;
+		border-top: 0.1rem solid rgb(255 255 255 / 0.07);
+		border-bottom: 0.1rem solid rgb(255 255 255 / 0.07);
+		background:
+			linear-gradient(180deg, rgb(255 125 0 / 0.16), rgb(255 125 0 / 0.08)),
+			rgb(0 0 0 / 0.18);
+
+		.seventv-user-card-low-trust-head {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 1rem;
+		}
+
+		.seventv-user-card-low-trust-title {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.55rem;
+			min-width: 0;
+
+			svg {
+				flex: 0 0 auto;
+				font-size: 1.65rem;
+				color: rgb(255 188 97);
+			}
+
+			p {
+				font-size: 1.25rem;
+				font-weight: 700;
+				color: var(--seventv-text-color-normal);
+			}
+
+			span {
+				font-size: 1.2rem;
+				font-weight: 600;
+				color: rgb(255 205 146);
+			}
+		}
+
+		.seventv-user-card-low-trust-type {
+			flex: 0 0 auto;
+			max-width: 13rem;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			font-size: 1.1rem;
+			color: var(--seventv-text-color-secondary);
+			text-transform: capitalize;
+		}
+
+		.seventv-user-card-low-trust-details {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.45rem 1.25rem;
+
+			p {
+				font-size: 1.1rem;
+				color: var(--seventv-text-color-normal);
+			}
+
+			strong {
+				color: rgb(255 223 190);
+				font-weight: 700;
 			}
 		}
 	}

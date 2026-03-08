@@ -199,6 +199,7 @@ onUnmounted(() => {
 	width: 100%;
 	height: 100%;
 	font-size: 2rem;
+	transform: translateX(1px);
 	transition: color 150ms ease-in-out;
 
 	&.menu-open {

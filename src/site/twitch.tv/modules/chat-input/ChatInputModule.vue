@@ -1,5 +1,6 @@
 <template>
 	<template v-for="inst in autocompleteProvider.instances" :key="inst.identifier">
+		<RecentEmoteBar v-if="shouldMount.get(inst)" :instance="inst" />
 		<ChatInput v-if="shouldMount.get(inst)" :instance="inst" />
 		<ChatSpam
 			v-if="shouldMount.get(inst)"
@@ -16,6 +17,7 @@ import { HookedInstance, useComponentHook } from "@/common/ReactHooks";
 import { declareModule } from "@/composable/useModule";
 import { declareConfig, useConfig } from "@/composable/useSettings";
 import ChatInput from "./ChatInput.vue";
+import RecentEmoteBar from "./RecentEmoteBar.vue";
 import ChatSpam from "./ChatSpam.vue";
 
 const { markAsReady } = declareModule<"TWITCH">("chat-input", {

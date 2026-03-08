@@ -1,5 +1,10 @@
 # Patch Notes
 
+08/03/2026 - Recent Emotes + Usercard Updates
+- Added 'Recent Emotes' setting
+- Added suspicious user section to 7TV improved usercards
+- Limited usercards to 1 per user
+
 07/03/2026 - Performance + QoL Updates
 - Improved general performance
 - Improved 'Performance Mode' setting

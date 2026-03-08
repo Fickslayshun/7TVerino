@@ -130,6 +130,7 @@ defineExpose({
 <script lang="ts">
 import { markRaw } from "vue";
 import { HighlightDef } from "@/composable/chat/useChatHighlights";
+import type { RecentEmoteBarScope, RecentSentEmoteEntry } from "@/composable/chat/useRecentSentEmotes";
 import { declareConfig, useConfig } from "@/composable/useSettings";
 import PersonalTimeoutManager from "./components/PersonalTimeoutManager.vue";
 import SettingsConfigHighlights from "@/app/settings/SettingsConfigHighlights.vue";
@@ -394,6 +395,32 @@ export const config = [
 			serialize: false,
 		},
 	),
+	declareConfig("chat.recent_emote_bar", "TOGGLE", {
+		path: ["7TVFixed", "Chat", 4],
+		label: "Recent Emote Bar",
+		hint: "Show a recent emote bar above the chat box. Click sends immediately. Ctrl+Click or Alt+Click inserts into the chat box.",
+		defaultValue: false,
+	}),
+	declareConfig<RecentEmoteBarScope>("chat.recent_emote_bar.scope", "DROPDOWN", {
+		path: ["7TVFixed", "Chat", 5],
+		label: "Recent Emote Bar Scope",
+		hint: "Choose whether the recent bar shows only 7TV emotes or all active non-emoji emotes.",
+		options: [
+			["7TV only", "7tv"],
+			["All active emotes", "all"],
+		],
+		disabledIf: () => !useConfig<boolean>("chat.recent_emote_bar").value,
+		defaultValue: "7tv",
+	}),
+	declareConfig<Map<string, RecentSentEmoteEntry[]>>("chat.recent_emote_bar.history", "NONE", {
+		label: "Recent Emote History",
+		defaultValue: new Map(),
+		transform: (v) =>
+			String(v) !== "[object Map]"
+				? new Map<string, RecentSentEmoteEntry[]>()
+				: (v as Map<string, RecentSentEmoteEntry[]>),
+		serialize: false,
+	}),
 	declareConfig<boolean>("highlights.basic.mention", "TOGGLE", {
 		path: ["Highlights", "Built-In"],
 		label: "Show Mention Highlights",

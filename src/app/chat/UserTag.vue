@@ -158,6 +158,8 @@ const shouldColor = computed(() => {
 	return !props.isMention || mentionStyle.value === MentionStyle.COLORED;
 });
 
+const userCardKey = computed(() => props.user.id || props.user.username);
+
 const loadUserCard = () => import("./UserCard.vue");
 const UserCard = defineAsyncComponent(loadUserCard);
 
@@ -188,7 +190,7 @@ function handleClick(ev: MouseEvent) {
 	if (!showUserCard.value) {
 		const rect = tagRef.value?.getBoundingClientRect();
 		userCardPosition.value = rect ? [rect.left, rect.bottom] : [ev.clientX, ev.clientY];
-		if (props.msgId) openUserCards.open(props.msgId);
+		if (props.msgId) openUserCards.open(props.msgId, userCardKey.value);
 		showUserCard.value = true;
 		return;
 	}
@@ -258,6 +260,13 @@ watch(
 	},
 	{ immediate: true },
 );
+
+watch([showUserCard, () => props.msgId, () => openUserCards.version.value], ([isOpen, msgId]) => {
+	if (!isOpen || !msgId) return;
+	if (openUserCards.isOpen(msgId)) return;
+
+	closeUserCard();
+});
 
 const t = Date.now();
 const stop = watch(

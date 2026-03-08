@@ -59,6 +59,7 @@ import { useChatProperties } from "@/composable/chat/useChatProperties";
 import { useChatScroller } from "@/composable/chat/useChatScroller";
 import { useChatTools } from "@/composable/chat/useChatTools";
 import { usePersonalTimeouts } from "@/composable/chat/usePersonalTimeouts";
+import { useRecentSentEmotes } from "@/composable/chat/useRecentSentEmotes";
 import { getModule } from "@/composable/useModule";
 import { useConfig } from "@/composable/useSettings";
 import { useWorker } from "@/composable/useWorker";
@@ -108,6 +109,7 @@ const scroller = useChatScroller(ctx, {
 	bounds: bounds,
 });
 const personalTimeouts = usePersonalTimeouts();
+const recentSentEmotes = useRecentSentEmotes();
 const properties = useChatProperties(ctx);
 const tools = useChatTools(ctx);
 const personalTimeoutMiddlewareKey = `personal-timeout:${ctx.id}`;
@@ -351,6 +353,10 @@ definePropertyHook(controller.value.component, "props", {
 				}
 
 				args[0] = nextValue;
+			}
+
+			if (typeof args[0] === "string") {
+				recentSentEmotes.recordMessage(ctx.id, args[0], emotes.active);
 			}
 
 			return old?.apply(this, args);
@@ -679,5 +685,6 @@ seventv-container.seventv-chat-list {
 
 [data-a-target="emote-picker-button"] {
 	overflow: unset !important;
+	transform: translate(-2px, -3px);
 }
 </style>
