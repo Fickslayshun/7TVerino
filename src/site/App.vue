@@ -82,14 +82,15 @@ bc.addEventListener("message", (ev) => {
 	if (ev.data.type !== "seventv-settings-sync") return;
 	const { nodes } = ev.data.data as { nodes: (SevenTV.Setting<SevenTV.SettingNode> & { timestamp: number })[] };
 
-	const newNodes = nodes.filter(
-		(n) => !settings.nodes[n.key] || n.timestamp > (settings.nodes[n.key].timestamp ?? 0),
-	);
+	const newNodes = nodes.filter((n) => {
+		const currentNode = settings.nodes[n.key];
+		if (!currentNode || currentNode.persist === false) return false;
+
+		return (n.timestamp ?? 0) > (currentNode.timestamp ?? 0);
+	});
 
 	for (const node of newNodes) {
 		const n = useConfig(node.key);
-		if (!n || !n.value) continue;
-
 		n.value = node.value;
 	}
 });

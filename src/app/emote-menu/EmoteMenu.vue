@@ -42,10 +42,11 @@
 			<div
 				v-for="(_, key) in visibleProviders"
 				v-show="key === activeProvider"
-				:key="key"
+				:key="`${props.channelId ?? ctx.channelID}:${key}`"
 				class="seventv-emote-menu-body"
 			>
 				<EmoteMenuTab
+					:channel-id="props.channelId ?? ctx.channelID"
 					:provider="key"
 					:selected="key === activeProvider"
 					@emote-clicked="emit('emote-click', $event)"
@@ -79,6 +80,7 @@ const props = defineProps<{
 	anchorEl: HTMLElement;
 	width?: string;
 	scale?: string;
+	channelId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -92,7 +94,7 @@ const containerRef = ref<HTMLElement | undefined>();
 const channelCtx = useChannelContext();
 const ctx = useEmoteMenuContext();
 watch(
-	() => channelCtx.id,
+	() => props.channelId ?? channelCtx.id,
 	(id) => {
 		ctx.channelID = id;
 	},

@@ -56,7 +56,7 @@ import type { ChatMessage } from "@/common/chat/ChatMessage";
 import { useChannelContext } from "@/composable/channel/useChannelContext";
 import { useFloatScreen } from "@/composable/useFloatContext";
 import { useConfig } from "@/composable/useSettings";
-import { useTray } from "@/site/twitch.tv/modules/chat/components/tray/ChatTray";
+import { setActiveReplyTray, useTray } from "@/site/twitch.tv/modules/chat/components/tray/ChatTray";
 import CopyIcon from "@/assets/svg/icons/CopyIcon.vue";
 import PinIcon from "@/assets/svg/icons/PinIcon.vue";
 import ReplyIcon from "@/assets/svg/icons/ReplyIcon.vue";
@@ -75,8 +75,10 @@ const emit = defineEmits<{
 }>();
 
 const ctx = useChannelContext();
+const tverinoEnabled = useConfig<boolean>("chat.tverino.enabled", true);
 
 const tray = useTray("Reply", () => ({
+	channelID: ctx.id,
 	id: props.msg.id,
 	body: props.msg.body,
 	deleted: props.msg.moderation.deleted,
@@ -99,7 +101,7 @@ const tray = useTray("Reply", () => ({
 }));
 
 const showCopyIcon = useConfig<boolean>("chat.copy_icon_toggle");
-const showReply = computed(() => !ctx.remote);
+const showReply = computed(() => !!props.msg.author && !props.msg.moderation.deleted);
 const copyToastOpen = ref(false);
 const copyButtonRef = ref<HTMLElement>();
 const copyToastContainer = useFloatScreen(copyButtonRef, {
@@ -126,6 +128,27 @@ const pinPromptContainer = useFloatScreen(pinButtonRef, {
 });
 
 function openReplyTray(): void {
+	if (ctx.remote || tverinoEnabled.value) {
+		setActiveReplyTray({
+			channelID: ctx.id,
+			id: props.msg.id,
+			authorID: props.msg.author?.id,
+			body: props.msg.body,
+			deleted: props.msg.moderation.deleted,
+			username: props.msg.author?.username,
+			displayName: props.msg.author?.displayName,
+			thread: props.msg.parent
+				? {
+						deleted: props.msg.parent.thread?.deleted ?? props.msg.parent.deleted,
+						id: props.msg.parent.thread?.id ?? props.msg.parent.id,
+						login: props.msg.parent.thread?.login ?? props.msg.parent.author?.username ?? "",
+				  }
+				: undefined,
+			close: () => setActiveReplyTray(null),
+		});
+		return;
+	}
+
 	tray.open();
 }
 

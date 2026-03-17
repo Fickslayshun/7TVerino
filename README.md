@@ -1,21 +1,29 @@
-# 7TVFixed
+# 7TVerino
 
-Unofficial 7TV extension fork focused on a faster, cleaner Twitch experience.
+Unofficial 7TV extension fork focused on performance, QoL, and a faster Twitch experience.
 
-This repository is separate from the official 7TV extension. It keeps source code here and ships installable builds through GitHub Releases.
+7TVerino merges 7TV and a Chatterino-style multi-channel chat workflow into one native Twitch extension. The goal is to keep Twitch feeling native while adding tabbed chat, faster tools, and practical quality-of-life upgrades without leaving the site.
 
-[![Download Latest Build](https://img.shields.io/badge/Download-Latest%20Build-2ea44f?style=for-the-badge)](https://github.com/Fickslayshun/seventvfixed/releases/latest)
-[![All Releases](https://img.shields.io/badge/GitHub-Releases-1f6feb?style=for-the-badge)](https://github.com/Fickslayshun/seventvfixed/releases)
-[![Direct Download](https://img.shields.io/badge/Direct%20Download-7tvfixed.zip-black?style=for-the-badge)](https://github.com/Fickslayshun/seventvfixed/releases/download/7tvfixed/7tvfixed.zip)
+This repository is separate from the official 7TV extension. It keeps the source here and ships installable builds through GitHub Releases.
+
+[![Download Latest Build](https://img.shields.io/badge/Download-Latest%20Build-2ea44f?style=for-the-badge)](https://github.com/Fickslayshun/7TVerino/releases/latest)
+[![All Releases](https://img.shields.io/badge/GitHub-Releases-1f6feb?style=for-the-badge)](https://github.com/Fickslayshun/7TVerino/releases)
+[![Direct Download](https://img.shields.io/badge/Direct%20Download-7tverino.zip-black?style=for-the-badge)](https://github.com/Fickslayshun/7TVerino/releases/download/7tverino/7tverino.zip)
+
+## What Is 7TVerino?
+
+- Native Twitch extension experience with a unified chat, input, and settings flow
+- Chatterino-style multi-channel chat tabs built directly into Twitch
+- 7TV-based performance and QoL improvements without needing a separate desktop client
 
 ## Download
 
 If you just want to install the extension, do not download the source code zip from the repository page.
 
-Use the stable `7tvfixed` release instead:
+Use the stable `7tverino` release instead:
 
--   Open [the `7tvfixed` release](https://github.com/Fickslayshun/seventvfixed/releases/tag/7tvfixed)
--   Or download [7tvfixed.zip](https://github.com/Fickslayshun/seventvfixed/releases/download/7tvfixed/7tvfixed.zip) directly
+-   Open [the `7tverino` release](https://github.com/Fickslayshun/7TVerino/releases/tag/7tverino)
+-   Or download [7tverino.zip](https://github.com/Fickslayshun/7TVerino/releases/download/7tverino/7tverino.zip) directly
 -   Extract it somewhere you want to keep it
 
 ## Install
@@ -45,7 +53,7 @@ yarn release:build
 
 That creates a release zip in `release-builds/`.
 
-Every push to `main` also refreshes the public GitHub release tagged `7tvfixed`.
+Every push to `main` also refreshes the public GitHub release tagged `7tverino`.
 
 ## Notes
 

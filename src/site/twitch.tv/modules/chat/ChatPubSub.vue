@@ -33,16 +33,16 @@ async function onLowTrustUserNewMessage(msg: EventDetail.LowTrustUserNewMessage)
 
 	messages.lowTrustUsers[ctx.id] = {
 		id: ctx.low_trust_id,
-		types: ctx.types,
+		types: Array.isArray(ctx.types) ? ctx.types : [],
 		banEvasion: {
 			likelihood: ctx.ban_evasion_evaluation,
 			evaluatedAt: ctx.evaluated_at,
 		},
-		sharedBanChannels: ctx.shared_ban_channel_ids,
+		sharedBanChannels: Array.isArray(ctx.shared_ban_channel_ids) ? ctx.shared_ban_channel_ids : [],
 		treatment: {
 			type: ctx.treatment,
 			updatedAt: ctx.updated_at,
-			updatedBy: ctx.updated_by.login,
+			updatedBy: ctx.updated_by?.login ?? null,
 		},
 		channelSharedBansUpdatedAt: null,
 	};
@@ -63,16 +63,16 @@ async function onLowTrustUserTreatmentUpdate(msg: EventDetail.LowTrustUserTreatm
 
 	messages.lowTrustUsers[msg.target_user_id] = {
 		id: msg.low_trust_id,
-		types: msg.types,
+		types: Array.isArray(msg.types) ? msg.types : [],
 		banEvasion: {
 			evaluatedAt: msg.evaluated_at,
 			likelihood: msg.ban_evasion_evaluation,
 		},
-		sharedBanChannels: lowTrust?.sharedBanChannels ?? [],
+		sharedBanChannels: Array.isArray(lowTrust?.sharedBanChannels) ? lowTrust.sharedBanChannels : [],
 		treatment: {
 			type: msg.treatment === "NO_TREATMENT" ? "NONE" : msg.treatment,
 			updatedAt: msg.updated_at,
-			updatedBy: msg.updated_by.login,
+			updatedBy: msg.updated_by?.login ?? null,
 		},
 		channelSharedBansUpdatedAt: null,
 	};

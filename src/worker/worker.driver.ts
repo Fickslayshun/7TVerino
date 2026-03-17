@@ -153,7 +153,8 @@ type WorkerEventName =
 	| "tverino_chat_subscribe"
 	| "tverino_chat_unsubscribe"
 	| "tverino_chat_send"
-	| "tverino_badge_sets_fetch";
+	| "tverino_badge_sets_fetch"
+	| "tverino_custom_reward_redeem";
 
 type WorkerTypedEvent<EVN extends WorkerEventName> = {
 	open: void;
@@ -176,6 +177,7 @@ type WorkerTypedEvent<EVN extends WorkerEventName> = {
 	tverino_chat_unsubscribe: TypedWorkerMessage<"TVERINO_CHAT_UNSUBSCRIBE">;
 	tverino_chat_send: TypedWorkerMessage<"TVERINO_CHAT_SEND">;
 	tverino_badge_sets_fetch: TypedWorkerMessage<"TVERINO_BADGE_SETS_FETCH">;
+	tverino_custom_reward_redeem: TypedWorkerMessage<"TVERINO_CUSTOM_REWARD_REDEEM">;
 }[EVN];
 
 export class WorkerEvent<T extends WorkerEventName> extends CustomEvent<WorkerTypedEvent<T>> {

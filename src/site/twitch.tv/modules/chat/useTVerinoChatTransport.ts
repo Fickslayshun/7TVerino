@@ -2,10 +2,15 @@ import { TypedEventListenerOrEventListenerObject } from "@/common/EventTarget";
 import { useWorker } from "@/composable/useWorker";
 import type { TypedWorkerMessage } from "@/worker";
 
-type TVerinoEventName = "tverino_chat_message" | "tverino_chat_send_result" | "tverino_chat_status";
+type TVerinoEventName =
+	| "tverino_chat_message"
+	| "tverino_chat_roomstate"
+	| "tverino_chat_send_result"
+	| "tverino_chat_status";
 
 type TVerinoEventPayload<T extends TVerinoEventName> = {
 	tverino_chat_message: TypedWorkerMessage<"TVERINO_CHAT_MESSAGE">;
+	tverino_chat_roomstate: TypedWorkerMessage<"TVERINO_CHAT_ROOMSTATE">;
 	tverino_chat_send_result: TypedWorkerMessage<"TVERINO_CHAT_SEND_RESULT">;
 	tverino_chat_status: TypedWorkerMessage<"TVERINO_CHAT_STATUS">;
 }[T];
@@ -44,6 +49,10 @@ const worker = useWorker();
 
 worker.target.addEventListener("tverino_chat_message", (ev) => {
 	target.emit("tverino_chat_message", ev.detail);
+});
+
+worker.target.addEventListener("tverino_chat_roomstate", (ev) => {
+	target.emit("tverino_chat_roomstate", ev.detail);
 });
 
 worker.target.addEventListener("tverino_chat_send_result", (ev) => {
@@ -89,7 +98,13 @@ function unsubscribeChannel(channelID: string): void {
 	});
 }
 
-function sendChatMessage(channelID: string, channelLogin: string, message: string, nonce: string): void {
+function sendChatMessage(
+	channelID: string,
+	channelLogin: string,
+	message: string,
+	nonce: string,
+	reply?: NonNullable<Twitch.DisplayableMessage["reply"]>,
+): void {
 	const normalizedLogin = channelLogin.trim().toLowerCase();
 	const normalizedMessage = message.trim();
 
@@ -103,11 +118,18 @@ function sendChatMessage(channelID: string, channelLogin: string, message: strin
 		return;
 	}
 
+	target.emit("tverino_chat_send_result", {
+		channelID,
+		nonce,
+		ok: true,
+	});
+
 	worker.sendMessage("TVERINO_CHAT_SEND", {
 		channelID,
 		channelLogin: normalizedLogin,
 		message: normalizedMessage,
 		nonce,
+		reply,
 	});
 }
 

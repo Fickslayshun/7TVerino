@@ -56,7 +56,7 @@ if (isSubscriber(props.badge)) {
 	if (months > 0) {
 		const key = tier > 0 ? "badges.subscriber.tiered_months" : "badges.subscriber.months";
 
-		tooltipProps.alt += ` (${t(key, months, { named: { tier, months } })})`;
+		tooltipProps.alt += ` (${t(key, { tier, months }, months)})`;
 	}
 }
 

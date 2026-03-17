@@ -41,14 +41,18 @@ function toConfigRef<T extends SevenTV.SettingType>(key: string, defaultValue?: 
 				// Only write the setting if it passes the optional predicate
 				const predicate = n.predicate;
 				if (predicate && !predicate(newVal)) return;
+				const timestamp = Date.now();
 
 				raw[key] = newVal;
+				n.timestamp = timestamp;
 				trigger();
 
-				// Write changes to the db
-				db.settings
-					.put({ key: key, type: typeof newVal, value: newVal }, key)
-					.catch((err) => log.error("failed to write setting", key, "to db:", err));
+				if (n.persist !== false) {
+					// Write changes to the db
+					db.settings
+						.put({ key: key, type: typeof newVal, value: newVal, timestamp, serialize: n.serialize }, key)
+						.catch((err) => log.error("failed to write setting", key, "to db:", err));
+				}
 
 				if (typeof n.effect === "function") {
 					n.effect(newVal);
@@ -68,13 +72,14 @@ db.ready().then(() =>
 export async function fillSettings(s: SevenTV.Setting<SevenTV.SettingType>[]) {
 	for (const { key, value, timestamp, serialize } of s) {
 		const cur = nodes[key];
-		if (cur && cur.timestamp && timestamp && cur.timestamp >= timestamp) continue;
+		if (cur?.timestamp && (!timestamp || cur.timestamp >= timestamp)) continue;
 
 		raw[key] = value;
 		nodes[key] = {
 			...(nodes[key] ?? {}),
 			timestamp,
 			serialize: serialize ?? true,
+			persist: nodes[key]?.persist ?? true,
 		} as SevenTV.SettingNode;
 	}
 }
@@ -122,11 +127,19 @@ export async function exportSettings() {
 
 export async function importSettings(settings: SevenTV.Setting<SevenTV.SettingType>[]) {
 	for (const { key, type, value } of settings) {
-		await db.settings.put({ key, type, value }, key).catch((err) => {
+		if (nodes[key]?.persist === false) continue;
+		const timestamp = Date.now();
+
+		await db.settings.put({ key, type, value, timestamp, serialize: nodes[key]?.serialize }, key).catch((err) => {
 			throw new Error(`failed to write setting, ${key}, to db:, ${err}`);
 		});
 	}
-	fillSettings(settings);
+	fillSettings(
+		settings.map((setting) => ({
+			...setting,
+			timestamp: Date.now(),
+		})),
+	);
 }
 
 export function serializeSettings(settings: SevenTV.Setting<SevenTV.SettingType>[]) {
@@ -203,10 +216,25 @@ export function synchronizeFrankerFaceZ() {
 export function useSettings() {
 	function register(newNodes: SevenTV.SettingNode[]) {
 		for (const node of newNodes) {
+			const previousNode = nodes[node.key];
 			nodes[node.key] = {
 				...node,
-				timestamp: nodes[node.key]?.timestamp ?? undefined,
+				persist: node.persist ?? true,
+				timestamp: previousNode?.timestamp ?? undefined,
 			};
+
+			if (node.persist === false) {
+				raw[node.key] =
+					previousNode === undefined || raw[node.key] === undefined ? node.defaultValue : raw[node.key];
+				void db.settings.delete(node.key).catch((err) => {
+					log.error("failed to delete non-persistent setting", node.key, "from db:", err);
+				});
+
+				if (typeof node.effect === "function") {
+					node.effect(raw[node.key]);
+				}
+				continue;
+			}
 
 			if (["string", "boolean", "object", "number", "undefined"].includes(typeof raw[node.key])) {
 				raw[node.key] = (() => {

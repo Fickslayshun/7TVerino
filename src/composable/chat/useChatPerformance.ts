@@ -14,9 +14,9 @@ const state = reactive({
 	tier: "default" as PerformanceTier,
 	backlogs: {} as Record<string, number>,
 	longTasks: [] as number[],
-	workerPathEnabled: false,
+	workerPathEnabled: true,
 	virtualizationEnabled: false,
-	asyncHydrationEnabled: false,
+	asyncHydrationEnabled: true,
 	recoverySince: 0,
 	initialized: false,
 });
@@ -35,12 +35,6 @@ function maxBacklog(): number {
 }
 
 function evaluateTier(): void {
-	if (!performanceMode.value) {
-		state.tier = "default";
-		state.recoverySince = 0;
-		return;
-	}
-
 	const now = Date.now();
 	pruneLongTasks(now);
 
@@ -93,21 +87,13 @@ function ensureRuntime(): void {
 	evaluationInterval = window.setInterval(evaluateTier, 1000);
 }
 
-function enableExperimentalPaths(enabled: boolean): void {
-	state.workerPathEnabled = enabled;
+function syncExperimentalPaths(enabled: boolean): void {
 	state.virtualizationEnabled = enabled;
-	state.asyncHydrationEnabled = enabled;
-
-	if (!enabled) {
-		state.tier = "default";
-		state.recoverySince = 0;
-		state.longTasks.length = 0;
-	}
 }
 
-enableExperimentalPaths(performanceMode.value);
+syncExperimentalPaths(performanceMode.value);
 watch(performanceMode, (enabled) => {
-	enableExperimentalPaths(enabled);
+	syncExperimentalPaths(enabled);
 	evaluateTier();
 });
 
@@ -129,14 +115,14 @@ export function useChatPerformance(ctx?: Pick<ChannelContext, "id">) {
 	return {
 		enabled: performanceMode,
 		tier: computed(() => state.tier),
-		workerPathEnabled: computed(() => performanceMode.value && state.workerPathEnabled),
+		workerPathEnabled: computed(() => state.workerPathEnabled),
 		virtualizationEnabled: computed(() => performanceMode.value && state.virtualizationEnabled),
-		asyncHydrationEnabled: computed(() => performanceMode.value && state.asyncHydrationEnabled),
-		animatedEmoteThrottlingEnabled: computed(() => performanceMode.value && state.virtualizationEnabled),
+		asyncHydrationEnabled: computed(() => state.asyncHydrationEnabled),
+		animatedEmoteThrottlingEnabled: computed(() => true),
 		prewarmEnabled: computed(() => performanceMode.value && state.tier !== "severe"),
 		heavyRowsHydratedOnly: computed(() => performanceMode.value && state.tier !== "default"),
 		richEmbedsEnabled: computed(() => !performanceMode.value || state.tier !== "severe"),
-		animatedAvatarsEnabled: computed(() => !performanceMode.value || state.tier === "default"),
+		animatedAvatarsEnabled: computed(() => state.tier !== "severe"),
 		effectiveBatchDurationMin: computed(() => {
 			if (!performanceMode.value) return 0;
 			if (state.tier === "severe") return 300;
@@ -175,7 +161,9 @@ export function useChatPerformance(ctx?: Pick<ChannelContext, "id">) {
 			state.asyncHydrationEnabled = false;
 		},
 		resetExperimentalPaths() {
-			enableExperimentalPaths(performanceMode.value);
+			state.workerPathEnabled = true;
+			state.asyncHydrationEnabled = true;
+			syncExperimentalPaths(performanceMode.value);
 			evaluateTier();
 		},
 	};

@@ -176,7 +176,7 @@ export const config = [
 		defaultValue: false,
 	}),
 	declareConfig("layout.disable_front_page", "TOGGLE", {
-		path: ["7TVFixed", "Front Page"],
+		path: ["7TVerino", "Front Page"],
 		label: "Disable Front Page",
 		hint: "If checked, the front page hero carousel and featured front page video players will be hidden",
 		defaultValue: false,

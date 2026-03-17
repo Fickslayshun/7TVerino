@@ -36,8 +36,8 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 7tvfixed
-          path: release-builds/7tvfixed.zip
+          name: 7tverino
+          path: release-builds/7tverino.zip
 
       - name: Prepare release notes
         shell: pwsh
@@ -57,7 +57,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $repo = "${{ github.repository }}"
-          $stableTag = "7tvfixed"
+          $stableTag = "7tverino"
           $releases = gh release list --repo $repo --limit 100 --json tagName | ConvertFrom-Json
 
           foreach ($release in $releases) {
@@ -71,8 +71,8 @@ jobs:
             gh release delete $stableTag --repo $repo --cleanup-tag -y
           }
 
-          gh release create $stableTag "release-builds/7tvfixed.zip" `
+          gh release create $stableTag "release-builds/7tverino.zip" `
             --repo $repo `
-            --title "7tvfixed" `
+            --title "7tverino" `
             --notes-file "./release-builds/release-notes.txt" `
             --latest

@@ -75,8 +75,8 @@ export async function getManifest(opt: ManifestOptions): Promise<Manifest.WebExt
 			128: `./icon/${iconName.replace("%s", "128")}`,
 		},
 
-		// By default the extension is enabled only on Twitch
-		host_permissions: ["*://*.twitch.tv/*"],
+		// By default the extension is enabled only on Twitch and Twitch's GraphQL API
+		host_permissions: ["*://*.twitch.tv/*", "https://gql.twitch.tv/*"],
 		permissions: ["scripting", "storage", "activeTab"],
 		optional_permissions: ["management"],
 

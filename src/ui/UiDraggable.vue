@@ -16,6 +16,7 @@ const props = defineProps<{
 	initialPlacement?: Placement;
 	emitClickout?: boolean;
 	handle?: HTMLDivElement;
+	followAnchor?: boolean;
 	once?: boolean;
 }>();
 
@@ -68,9 +69,11 @@ async function positionToAnchor(anchor: ReferenceElement) {
 }
 
 let dragFrame: number | null = null;
+let hasDragged = false;
 
 useDraggable(el, {
 	onMove({ x, y }) {
+		hasDragged = true;
 		if (dragFrame === null) {
 			dragFrame = window.requestAnimationFrame(() => {
 				updatePosition(x, y);
@@ -85,15 +88,16 @@ useDraggable(el, {
 let stopUpdating: (() => void) | undefined;
 
 watch(
-	() => [
-		el.value,
-		props.initialAnchor,
-		props.initialPosition?.[0],
-		props.initialPosition?.[1],
-		props.initialPlacement,
-		props.once,
-	],
-	() => {
+		() => [
+			el.value,
+			props.initialAnchor,
+			props.initialPosition?.[0],
+			props.initialPosition?.[1],
+			props.followAnchor,
+			props.initialPlacement,
+			props.once,
+		],
+		() => {
 		stopUpdating?.();
 		stopUpdating = undefined;
 
@@ -101,7 +105,7 @@ watch(
 		if (!currentContainer) return;
 
 		let init = true;
-		stopUpdating = autoUpdate(
+			stopUpdating = autoUpdate(
 			{
 				getBoundingClientRect() {
 					return {
@@ -118,21 +122,20 @@ watch(
 				contextElement: props.initialAnchor instanceof HTMLElement ? props.initialAnchor : undefined,
 			},
 			currentContainer,
-			() => {
-				if (init) {
-					if (props.initialAnchor) {
+				() => {
+					if (props.initialAnchor && (init || (props.followAnchor && !hasDragged))) {
 						void positionToAnchor(props.initialAnchor);
-					} else {
+						init = false;
+					} else if (init) {
 						const tX = props.initialPosition?.[0] ?? 0;
 						const tY = props.initialPosition?.[1] ?? 0;
 						updatePosition(tX, tY);
+						init = false;
+					} else if (!props.once) {
+						updatePosition(x.value, y.value);
 					}
-					init = false;
-				} else if (!props.once) {
-					updatePosition(x.value, y.value);
-				}
-			},
-		);
+				},
+			);
 	},
 	{ immediate: true },
 );

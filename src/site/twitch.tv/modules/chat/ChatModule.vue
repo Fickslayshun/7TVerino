@@ -358,25 +358,25 @@ export const config = [
 		defaultValue: true,
 	}),
 	declareConfig("chat.middle_click_profile", "TOGGLE", {
-		path: ["7TVFixed", "Chat"],
+		path: ["7TVerino", "Chat"],
 		label: "Middle Click To Profile",
 		hint: "If enabled, middle mouse button clicking a username in chat opens that user's Twitch channel in a new tab",
-		defaultValue: false,
+		defaultValue: true,
 	}),
 	declareConfig("chat.click_copy_username", "TOGGLE", {
-		path: ["7TVFixed", "Chat", 1],
+		path: ["7TVerino", "Chat", 1],
 		label: "Click To Copy Username",
 		hint: "If enabled, Ctrl+LeftClick or Alt+LeftClick on a username copies that user's Twitch login, and a copy button is added to the user card",
-		defaultValue: false,
+		defaultValue: true,
 	}),
 	declareConfig("chat.personal_timeouts", "TOGGLE", {
-		path: ["7TVFixed", "Chat", 2],
+		path: ["7TVerino", "Chat", 2],
 		label: "Personal Timeouts",
 		hint: "If enabled, you can locally hide a chatter's messages for a chosen time without affecting Twitch moderation",
-		defaultValue: false,
+		defaultValue: true,
 	}),
 	declareConfig("chat.personal_timeout_manager", "CUSTOM", {
-		path: ["7TVFixed", "Chat", 3],
+		path: ["7TVerino", "Chat", 3],
 		label: "Manage Personal Timeouts",
 		hint: "Review, clear, and expire active local personal timeouts",
 		defaultValue: false,
@@ -396,13 +396,13 @@ export const config = [
 		},
 	),
 	declareConfig("chat.recent_emote_bar", "TOGGLE", {
-		path: ["7TVFixed", "Chat", 4],
+		path: ["7TVerino", "Chat", 4],
 		label: "Recent Emote Bar",
 		hint: "Show a recent emote bar above the chat box. Click sends immediately. Ctrl+Click or Alt+Click inserts into the chat box.",
-		defaultValue: false,
+		defaultValue: true,
 	}),
 	declareConfig<RecentEmoteBarScope>("chat.recent_emote_bar.scope", "DROPDOWN", {
-		path: ["7TVFixed", "Chat", 5],
+		path: ["7TVerino", "Chat", 5],
 		label: "Recent Emote Bar Scope",
 		hint: "Choose whether the recent bar shows only 7TV emotes or all active non-emoji emotes.",
 		options: [
@@ -421,21 +421,17 @@ export const config = [
 				: (v as Map<string, RecentSentEmoteEntry[]>),
 	}),
 	declareConfig("chat.tverino.beta_notice", "NONE", {
-		path: ["7TVFixed", "Chat", 6],
-		label: "7TVerino BETA",
-		hint: "Beta feature. Replaces Twitch chat with a tabbed 7TV-styled multi-channel shell. Twitch chat alerts like predictions and drop alerts are currently disabled while this mode is on.",
-		warningTooltip:
-			"This feature is still in beta.\nCurrent limitation:\n- Chat alerts (predictions, drop alerts etc) are disabled while 7TVerino is enabled.",
+		path: ["7TVerino", "Chat", 6],
+		label: "7TVerino",
+		hint: "Replaces Twitch chat with a tabbed 7TV-styled multi-channel shell. Disable the toggle below if you want to fall back to native Twitch chat.",
 		defaultValue: false,
 		serialize: false,
 	}),
 	declareConfig("chat.tverino.enabled", "TOGGLE", {
-		path: ["7TVFixed", "Chat", 7],
+		path: ["7TVerino", "Chat", 7],
 		label: "Enable 7TVerino",
-		hint: "Turn on the 7TVerino beta chat replacement.",
-		warningTooltip:
-			"This feature is still in beta.\nCurrent limitation:\n- Chat alerts (predictions, drop alerts etc) are disabled while 7TVerino is enabled.",
-		defaultValue: false,
+		hint: "Use the 7TVerino chat experience. Disable this if you want to fall back to native Twitch chat.",
+		defaultValue: true,
 	}),
 	declareConfig<Map<string, SevenTV.TVerinoSavedTab>>("chat.tverino.workspace", "NONE", {
 		label: "7TVerino Workspace",
@@ -451,6 +447,7 @@ export const config = [
 			state: "idle",
 			reason: "",
 		},
+		persist: false,
 		serialize: false,
 	}),
 	declareConfig<SevenTV.TVerinoActiveTarget>("chat.tverino.active_target", "NONE", {
@@ -461,6 +458,7 @@ export const config = [
 			login: "",
 			displayName: "",
 		},
+		persist: false,
 		serialize: false,
 	}),
 	declareConfig<boolean>("highlights.basic.mention", "TOGGLE", {

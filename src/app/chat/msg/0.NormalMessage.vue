@@ -30,10 +30,18 @@ defineProps<{
 .seventv-chat-message-container {
 	display: block;
 	position: relative;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
 	overflow-wrap: anywhere;
 
 	.seventv-chat-message-background {
 		position: relative;
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
 		padding: 0.5rem var(--seventv-chat-padding, 1rem);
 
 		.seventv-reply-part {

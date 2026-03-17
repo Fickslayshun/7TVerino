@@ -81,11 +81,11 @@ export const config = [
 		defaultValue: false,
 	}),
 	declareConfig("layout.sidebar_inline_hover_details", "TOGGLE", {
-		path: ["7TVFixed", "Sidebar"],
+		path: ["7TVerino", "Sidebar"],
 		label: "Stream Title Hover",
 		hint: "Hide the Twitch sidebar hover card and cycle the visible game line into the stream title instead. Hover the text to see the full title in the native browser tooltip.",
 		effect: (v) => document.body.classList.toggle("seventv-sidebar-inline-hover-details-enabled", v),
-		defaultValue: false,
+		defaultValue: true,
 	}),
 ];
 </script>

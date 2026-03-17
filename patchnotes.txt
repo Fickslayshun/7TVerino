@@ -1,5 +1,11 @@
 # Patch Notes
 
+16/03/2026 - Extension overhaul
+- Renamed 7TVFixed to 7TVerino
+- Overhauled 7TVerino chat, enabled by default and no longer in Beta
+- Fixed bugs
+- Improved general performance
+
 09/03/2026 - 7TVerino Beta
 - Added '7TVerino BETA' setting
 
@@ -17,7 +23,7 @@
 - Fixed a bug causing the 7TV improved usercard to move/close randomly
 
 06/03/2026 - Settings update and bug fix
-- Added '7TVFixed' category within 7TV settings
+- Added '7TVerino' category within 7TV settings
 - Added 'Middle Click To Profile' setting
 - Added 'Disable Front Page' setting
 - Fixed subscription anniversary messages not being sent

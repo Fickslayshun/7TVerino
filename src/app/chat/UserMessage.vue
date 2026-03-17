@@ -399,6 +399,11 @@ function formatTimestamp(
 <style scoped lang="scss">
 .seventv-user-message {
 	display: block;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	overflow-wrap: anywhere;
 
 	&.has-highlight {
 		padding: 1rem calc(var(--seventv-chat-padding, 1rem) - 0.25rem);
@@ -441,6 +446,12 @@ function formatTimestamp(
 		margin-left: 0 !important;
 		margin-right: 0 !important;
 	}
+}
+
+.seventv-chat-message-body {
+	max-width: 100%;
+	overflow-wrap: anywhere;
+	word-break: break-word;
 }
 
 .seventv-chat-message-moderated {

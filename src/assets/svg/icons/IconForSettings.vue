@@ -38,7 +38,7 @@ const c = {
 	Backup: FileExportIcon,
 	"Paint Tool": IconFillDrip,
 	"Site Layout": SiteLayoutIcon,
-	"7TVFixed": Logo7TV,
+	"7TVerino": Logo7TV,
 
 	"Enable YouTube": YouTubeIcon,
 }[props.name];

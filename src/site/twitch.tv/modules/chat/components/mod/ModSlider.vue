@@ -13,18 +13,19 @@
 				{{ data.text }}
 			</span>
 		</div>
-		<div
-			ref="sliderRef"
-			class="grabbable-wrapper"
-			@mouseenter="sliderTooltip.show(sliderRef)"
-			@mouseleave="sliderTooltip.hide()"
-		>
-			<div class="grabbable-outer" @pointerdown="handleDown" @pointerup="handleRelease" @pointermove="update">
+		<div class="grabbable-wrapper">
+			<div class="grabbable-outer">
 				<div
+					ref="sliderRef"
 					class="grabbable-inner"
 					:style="{
 						backgroundColor: highlight,
 					}"
+					@mouseenter="sliderTooltip.show(sliderRef)"
+					@mouseleave="sliderTooltip.hide()"
+					@pointerdown="handleDown"
+					@pointerup="handleRelease"
+					@pointermove="update"
 				>
 					<div class="dots" />
 				</div>
@@ -80,7 +81,7 @@ const handleDown = (e: PointerEvent) => {
 	e.stopPropagation();
 	initial = e.pageX;
 	tracking.value = true;
-	(e.target as HTMLElement).setPointerCapture(e.pointerId);
+	(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 	sliderTooltip.hide();
 };
 
@@ -108,7 +109,7 @@ const handleRelease = (e: PointerEvent): void => {
 	setTimeout(() => (transition.value = false), 300);
 
 	data.calculate(0);
-	(e.target as HTMLElement).releasePointerCapture(e.pointerId);
+	(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
 };
 
 const update = (e: PointerEvent): void => {
@@ -178,14 +179,17 @@ const update = (e: PointerEvent): void => {
 	height: 100%;
 	z-index: 999;
 	position: absolute;
+	overflow: hidden;
+	pointer-events: none;
 
 	.grabbable-outer {
+		opacity: 0;
 		height: 100%;
 		display: inline-flex;
 		padding: 0.5rem 0;
 		width: 2rem;
-		pointer-events: all;
-		cursor: grab;
+		pointer-events: none;
+		transition: opacity 0.15s ease;
 
 		.grabbable-inner {
 			height: 100%;
@@ -195,6 +199,8 @@ const update = (e: PointerEvent): void => {
 			align-items: center;
 			border-left: none;
 			box-shadow: 0 0 0.4rem hsla(0deg, 0%, 0%, 50%);
+			cursor: grab;
+			pointer-events: none;
 
 			.dots {
 				background-image: radial-gradient(circle, var(--color-border-input) 0.1rem, transparent 0.2rem);
@@ -203,6 +209,21 @@ const update = (e: PointerEvent): void => {
 				width: 0.6rem;
 			}
 		}
+	}
+}
+
+.seventv-ban-slider:hover,
+.seventv-ban-slider:focus-within {
+	.grabbable-wrapper {
+		width: 2rem;
+	}
+
+	.grabbable-wrapper .grabbable-outer {
+		opacity: 1;
+	}
+
+	.grabbable-wrapper .grabbable-inner {
+		pointer-events: all;
 	}
 }
 </style>

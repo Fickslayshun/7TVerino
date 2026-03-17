@@ -183,6 +183,7 @@ function ensureAutocompleteIndex(): void {
 
 	autocompleteIndex.rebuild({
 		personalEmotes: cosmetics.emotes,
+		activeEmotes: emotes.active,
 		providers: emotes.providers,
 		emojis: emotes.emojis,
 		chatters: messages.chatters,
@@ -400,6 +401,10 @@ function clearTabCycle(closeTray = false): void {
 	}
 }
 
+function normalizeTabMatchToken(token: string): string {
+	return token.trimEnd();
+}
+
 function markForceResetForUserRangeEdit(closeTray = false): void {
 	forceResetOnNextEditableUpdate.value = true;
 	clearTabCycle(closeTray);
@@ -500,7 +505,14 @@ function handleTabPress(ev: KeyboardEvent | null, isBackwards?: boolean): void {
 	// Phase 2: Resolve match list source
 	const previousMatches = tabState.value?.matches ?? [];
 	let matches = previousMatches;
-	const currentIndex = previousMatches.findIndex((m) => m.token === currentToken);
+	let currentIndex = -1;
+	if (tabState.value && normalizeTabMatchToken(tabState.value.currentMatch.token) === normalizeTabMatchToken(currentToken)) {
+		currentIndex = tabState.value.index;
+	} else {
+		currentIndex = previousMatches.findIndex(
+			(m) => normalizeTabMatchToken(m.token) === normalizeTabMatchToken(currentToken),
+		);
+	}
 
 	if (currentIndex < 0) {
 		matches = findMatchingTokens(currentToken, "tab");

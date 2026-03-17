@@ -24,9 +24,9 @@ import { declareConfig } from "@/composable/useSettings";
 
 export const config = [
 	declareConfig("general.performance_mode", "TOGGLE", {
-		path: ["7TVFixed", "Performance"],
+		path: ["7TVerino", "Performance"],
 		label: "Performance Mode (Experimental)",
-		hint: "Experimental: Enables alternate chat rendering, adaptive runtime tuning, and bounded prewarm/prefetch. May increase background activity and can fall back to the default path if Twitch behaves unexpectedly.",
+		hint: "Experimental: Enables aggressive chat interventions such as virtualized rows, adaptive line and batch caps, smooth-scroll suppression, and bounded stream prewarm. Safe runtime optimizations stay enabled by default.",
 		defaultValue: false,
 	}),
 ];

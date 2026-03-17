@@ -1,7 +1,7 @@
 import { MessagePartType, MessageType, ModerationType } from "@/site/twitch.tv";
-import type { TypedWorkerMessage } from ".";
 import type { WorkerDriver } from "./worker.driver";
 import type { WorkerPort } from "./worker.port";
+import type { TypedWorkerMessage } from ".";
 
 const TWITCH_IRC_URL = "wss://irc-ws.chat.twitch.tv:443";
 const CAPABILITIES = ["twitch.tv/tags", "twitch.tv/commands", "twitch.tv/membership"];
@@ -21,6 +21,8 @@ interface PendingSend {
 	message: string;
 	nonce: string;
 	createdAt: number;
+	privmsgPatched?: boolean;
+	statePatched?: boolean;
 }
 
 interface SubscriptionEntry {
@@ -34,6 +36,12 @@ interface AuthState {
 	token: string;
 }
 
+interface SelfState {
+	badges: Record<string, string>;
+	badgeDynamicData: Record<string, string>;
+	user: Twitch.ChatUser;
+}
+
 export class TVerinoChatTransport {
 	private socket: WebSocket | null = null;
 	private reconnectTimer: number | null = null;
@@ -41,6 +49,7 @@ export class TVerinoChatTransport {
 	private subscriptions = new Map<string, SubscriptionEntry>();
 	private joinedChannels = new Set<string>();
 	private pendingSends: PendingSend[] = [];
+	private selfStates = new Map<string, SelfState>();
 	private status: SevenTV.TVerinoTransportStatus = {
 		state: "idle",
 		reason: "",
@@ -64,7 +73,14 @@ export class TVerinoChatTransport {
 
 		driver.addEventListener("tverino_chat_send", (ev) => {
 			if (!ev.port) return;
-			this.sendMessage(ev.detail.channelID, ev.detail.channelLogin, ev.detail.message, ev.detail.nonce, ev.port);
+			this.sendMessage(
+				ev.detail.channelID,
+				ev.detail.channelLogin,
+				ev.detail.message,
+				ev.detail.nonce,
+				ev.port,
+				ev.detail.reply,
+			);
 		});
 	}
 
@@ -136,6 +152,7 @@ export class TVerinoChatTransport {
 		if (entry.ports.size > 0) return;
 
 		this.subscriptions.delete(channelID);
+		this.selfStates.delete(channelID);
 		if (this.status.state === "connected" && entry.channel.username) {
 			this.partChannel(entry.channel.username);
 		}
@@ -147,7 +164,10 @@ export class TVerinoChatTransport {
 			return;
 		}
 
-		if (this.socket && (this.socket.readyState === WebSocket.CONNECTING || this.socket.readyState === WebSocket.OPEN)) {
+		if (
+			this.socket &&
+			(this.socket.readyState === WebSocket.CONNECTING || this.socket.readyState === WebSocket.OPEN)
+		) {
 			return;
 		}
 
@@ -219,6 +239,7 @@ export class TVerinoChatTransport {
 		const socket = this.socket;
 		this.socket = null;
 		this.joinedChannels.clear();
+		this.selfStates.clear();
 		socket?.close();
 
 		if (reason) {
@@ -255,6 +276,12 @@ export class TVerinoChatTransport {
 					this.disconnect("Twitch chat auth was rejected");
 				}
 				break;
+			case "ROOMSTATE":
+				this.onRoomState(parsed);
+				break;
+			case "USERSTATE":
+				this.onUserState(parsed);
+				break;
 			case "PRIVMSG":
 				this.onPrivmsg(parsed);
 				break;
@@ -276,47 +303,47 @@ export class TVerinoChatTransport {
 
 		const authorLogin = parsePrefixLogin(parsed.prefix);
 		const messageBody = normalizeChatMessageText(parsed.trailing);
-		if (!messageBody) return;
+		if (!messageBody.trim()) return;
+		const normalizedMessageBody = messageBody.trim();
 
 		const matchingPending =
-			authorLogin &&
-			this.auth &&
-			authorLogin === this.auth.login.toLowerCase() &&
-			this.pendingSends.find(
-				(send) =>
-					send.channelID === entry.channel.id &&
-					send.message === messageBody &&
-					send.createdAt > Date.now() - PENDING_SEND_TTL_MS,
-			);
+			authorLogin && this.auth && authorLogin === this.auth.login.toLowerCase()
+				? this.pendingSends.find(
+						(send) =>
+							send.channelID === entry.channel.id &&
+							!send.privmsgPatched &&
+							send.message === normalizedMessageBody &&
+							send.createdAt > Date.now() - PENDING_SEND_TTL_MS,
+				  )
+				: undefined;
 
+		const isAction = isActionMessage(messageBody);
+		const cleanBody = isAction ? unwrapActionMessage(messageBody) : messageBody;
+		const pendingNonce = matchingPending?.nonce;
+		const selfState =
+			authorLogin && this.auth && authorLogin === this.auth.login.toLowerCase()
+				? this.selfStates.get(entry.channel.id)
+				: undefined;
 		if (matchingPending) {
-			this.pendingSends = this.pendingSends.filter((send) => send !== matchingPending);
-			this.postToChannel(entry.channel.id, "TVERINO_CHAT_SEND_RESULT", {
-				channelID: entry.channel.id,
-				nonce: matchingPending.nonce,
-				ok: true,
-				messageID: parsed.tags.id,
-			});
-			return;
+			matchingPending.privmsgPatched = true;
 		}
 
-		const isAction = isActionMessage(parsed.trailing);
-		const cleanBody = isAction ? unwrapActionMessage(parsed.trailing) : messageBody;
 		const message = {
 			id: parsed.tags.id || `${entry.channel.id}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
 			type: MessageType.MESSAGE,
+			nonce: pendingNonce,
 			user: {
-				color: parsed.tags.color || "",
+				color: selfState?.user.color || parsed.tags.color || "",
 				isIntl: false,
 				isSubscriber: parsed.tags.subscriber === "1",
-				userDisplayName: parsed.tags["display-name"] || authorLogin,
-				displayName: parsed.tags["display-name"] || authorLogin,
-				userID: parsed.tags["user-id"] || "",
-				userLogin: authorLogin,
-				userType: parsed.tags["user-type"] || "",
+				userDisplayName: selfState?.user.userDisplayName || parsed.tags["display-name"] || authorLogin,
+				displayName: selfState?.user.displayName || parsed.tags["display-name"] || authorLogin,
+				userID: selfState?.user.userID || parsed.tags["user-id"] || "",
+				userLogin: selfState?.user.userLogin || authorLogin,
+				userType: selfState?.user.userType || parsed.tags["user-type"] || "",
 			},
-			badgeDynamicData: {},
-			badges: parseBadgeMap(parsed.tags.badges),
+			badgeDynamicData: selfState?.badgeDynamicData ?? parseBadgeMap(parsed.tags["badge-info"]),
+			badges: selfState?.badges ?? parseBadgeMap(parsed.tags.badges),
 			deleted: false,
 			banned: false,
 			hidden: false,
@@ -336,6 +363,61 @@ export class TVerinoChatTransport {
 			channelID: entry.channel.id,
 			message,
 		});
+
+		if (matchingPending) {
+			this.postToChannel(entry.channel.id, "TVERINO_CHAT_SEND_RESULT", {
+				channelID: entry.channel.id,
+				nonce: matchingPending.nonce,
+				ok: true,
+				messageID: parsed.tags.id,
+			});
+
+			if (matchingPending.statePatched || selfState) {
+				this.pendingSends = this.pendingSends.filter((send) => send !== matchingPending);
+			}
+		}
+	}
+
+	private onRoomState(parsed: ParsedIRCMessage): void {
+		const channelLogin = parsed.params[0]?.replace(/^#/, "").toLowerCase();
+		const entry = this.getSubscriptionByLogin(channelLogin);
+		if (!entry) return;
+
+		this.postToChannel(entry.channel.id, "TVERINO_CHAT_ROOMSTATE", {
+			channelID: entry.channel.id,
+			roomState: parseRoomState(parsed.tags),
+		});
+	}
+
+	private onUserState(parsed: ParsedIRCMessage): void {
+		const channelLogin = parsed.params[0]?.replace(/^#/, "").toLowerCase();
+		const entry = this.getSubscriptionByLogin(channelLogin);
+		if (!entry) return;
+
+		const selfState = buildSelfState(parsed, this.auth);
+		this.selfStates.set(entry.channel.id, selfState);
+
+		this.prunePendingSends();
+
+		const matchingPending = this.pendingSends.find(
+			(send) => send.channelID === entry.channel.id && !send.statePatched,
+		);
+		if (!matchingPending) return;
+
+		matchingPending.statePatched = true;
+
+		this.postToChannel(entry.channel.id, "TVERINO_CHAT_SEND_RESULT", {
+			channelID: entry.channel.id,
+			nonce: matchingPending.nonce,
+			ok: true,
+			badges: selfState.badges,
+			badgeDynamicData: selfState.badgeDynamicData,
+			user: selfState.user,
+		});
+
+		if (matchingPending.privmsgPatched) {
+			this.pendingSends = this.pendingSends.filter((send) => send !== matchingPending);
+		}
 	}
 
 	private onClearMsg(parsed: ParsedIRCMessage): void {
@@ -398,6 +480,7 @@ export class TVerinoChatTransport {
 		message: string,
 		nonce: string,
 		port: WorkerPort,
+		reply?: NonNullable<Twitch.DisplayableMessage["reply"]>,
 	): void {
 		if (!this.auth) {
 			port.postMessage("TVERINO_CHAT_SEND_RESULT", {
@@ -436,11 +519,16 @@ export class TVerinoChatTransport {
 			message: normalizedMessage,
 			nonce,
 			createdAt: Date.now(),
+			privmsgPatched: false,
+			statePatched: false,
 		});
 		this.prunePendingSends();
 
 		try {
-			this.sendRaw(`PRIVMSG #${normalizedLogin} :${normalizedMessage}`);
+			const line = reply?.parentMsgId
+				? `@reply-parent-msg-id=${reply.parentMsgId} PRIVMSG #${normalizedLogin} :${normalizedMessage}`
+				: `PRIVMSG #${normalizedLogin} :${normalizedMessage}`;
+			this.sendRaw(line);
 			port.postMessage("TVERINO_CHAT_SEND_RESULT", {
 				channelID,
 				nonce,
@@ -514,12 +602,14 @@ export class TVerinoChatTransport {
 		}
 	}
 
-	private postToChannel<T extends "TVERINO_CHAT_MESSAGE" | "TVERINO_CHAT_SEND_RESULT">(
+	private postToChannel<T extends "TVERINO_CHAT_MESSAGE" | "TVERINO_CHAT_ROOMSTATE" | "TVERINO_CHAT_SEND_RESULT">(
 		channelID: string,
 		type: T,
 		data: T extends "TVERINO_CHAT_MESSAGE"
 			? TypedWorkerMessage<"TVERINO_CHAT_MESSAGE">
-			: TypedWorkerMessage<"TVERINO_CHAT_SEND_RESULT">,
+			: T extends "TVERINO_CHAT_ROOMSTATE"
+			  ? TypedWorkerMessage<"TVERINO_CHAT_ROOMSTATE">
+			  : TypedWorkerMessage<"TVERINO_CHAT_SEND_RESULT">,
 	): void {
 		const entry = this.subscriptions.get(channelID);
 		if (!entry) return;
@@ -595,7 +685,7 @@ function parsePrefixLogin(prefix: string): string {
 }
 
 function normalizeChatMessageText(value: string): string {
-	return value.replace(/\r/g, "").trim();
+	return value.replace(/\r/g, "");
 }
 
 function isActionMessage(value: string): boolean {
@@ -605,11 +695,31 @@ function isActionMessage(value: string): boolean {
 function unwrapActionMessage(value: string): string {
 	if (!isActionMessage(value)) return value;
 
-	return value.slice(8, -1).trim();
+	return value.slice(8, -1);
 }
 
 function normalizeAuthToken(value: string): string {
 	return value.trim().replace(/^oauth:/i, "");
+}
+
+function buildSelfState(parsed: ParsedIRCMessage, auth: AuthState | null): SelfState {
+	const login = auth?.login || "";
+	const displayName = parsed.tags["display-name"] || login;
+
+	return {
+		badges: parseBadgeMap(parsed.tags.badges),
+		badgeDynamicData: parseBadgeMap(parsed.tags["badge-info"]),
+		user: {
+			color: parsed.tags.color || "",
+			isIntl: false,
+			isSubscriber: parsed.tags.subscriber === "1",
+			userDisplayName: displayName,
+			displayName,
+			userID: parsed.tags["user-id"] || auth?.userID || "",
+			userLogin: login,
+			userType: parsed.tags["user-type"] || "",
+		},
+	};
 }
 
 function parseBadgeMap(raw: string | undefined): Record<string, string> {
@@ -623,6 +733,25 @@ function parseBadgeMap(raw: string | undefined): Record<string, string> {
 	}
 
 	return badges;
+}
+
+function parseRoomState(tags: Record<string, string>): SevenTV.TVerinoRoomState {
+	const emoteOnly = tags["emote-only"] === "1";
+	const subscribersOnly = tags["subs-only"] === "1";
+	const uniqueChatEnabled = tags["r9k"] === "1";
+	const slowModeDuration = Math.max(0, Number(tags.slow || 0));
+	const followersOnlyDuration = Number(tags["followers-only"] ?? -1);
+
+	return {
+		loaded: true,
+		emoteOnly,
+		subscribersOnly,
+		followersOnlyEnabled: Number.isFinite(followersOnlyDuration) && followersOnlyDuration >= 0,
+		followersOnlyDuration: Number.isFinite(followersOnlyDuration) ? followersOnlyDuration : -1,
+		slowModeEnabled: slowModeDuration > 0,
+		slowModeDuration,
+		uniqueChatEnabled,
+	};
 }
 
 function buildReply(tags: Record<string, string>): Twitch.ChatMessage["reply"] | undefined {

@@ -16,6 +16,7 @@
 		"baseUrl": "..",
 		"paths": {
 			"@/*": ["src/*"],
+			"@locale/*": ["locale/*"],
 			"CHANGELOG": ["config/CHANGELOG.md"]
 		}
 	},

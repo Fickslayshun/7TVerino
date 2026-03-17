@@ -1,10 +1,10 @@
 <template>
 	<div class="seventv-emote-menu-wrap">
 		<EmoteMenu
-			v-if="anchorEl"
+			v-if="anchorEl && !tverinoEnabled"
 			:anchor-el="anchorEl"
-			width="32.5rem"
-			scale="1rem"
+			width="39rem"
+			scale="1.2rem"
 			:instance="props.instance"
 			@emote-click="onEmoteClick($event)"
 			@toggle-native-menu="toggle(true)"
@@ -13,7 +13,7 @@
 	</div>
 
 	<!-- Replace the emote menu button -->
-	<Teleport v-if="buttonEl && placement === 'regular'" :to="buttonEl">
+	<Teleport v-if="buttonEl && placement === 'regular' && !tverinoEnabled" :to="buttonEl">
 		<EmoteMenuButton @click="toggle()" />
 		<div class="seventv-emote-menu-button" :class="{ 'menu-open': ctx.open }" @click.stop="toggle()">
 			<Logo provider="7TV" />
@@ -58,6 +58,7 @@ const usage = useConfig<Map<string, number>>("ui.emote_menu.usage");
 
 const chatModule = getModuleRef("chat");
 const placement = useConfig<"regular" | "below" | "hidden">("ui.emote_menu.button_placement");
+const tverinoEnabled = useConfig<boolean>("chat.tverino.enabled", true);
 const inputModule = getModuleRef<"TWITCH", "chat-input-controller">("chat-input-controller");
 
 onMounted(() => {

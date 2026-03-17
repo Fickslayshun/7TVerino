@@ -1,13 +1,9 @@
 import { createI18n } from "vue-i18n";
+import enUS from "@locale/en_US";
 
-// Import locales
-const locale = {} as Record<string, Record<string, object>>;
-const importedLocales = import.meta.glob("@locale/*.yaml", { eager: true, import: "default" });
-
-for (const [path, mod] of Object.entries(importedLocales)) {
-	const lang = path.replace("/locale/", "").replace(".yaml", "");
-	locale[lang] = mod as Record<string, object>;
-}
+const locale: Record<string, Record<string, unknown>> = {
+	en_US: enUS as Record<string, unknown>,
+};
 
 // Create i18n instance
 export function setupI18n() {
@@ -15,7 +11,7 @@ export function setupI18n() {
 		locale: "en_US",
 		legacy: false,
 		globalInjection: true,
-		messages: locale,
+		messages: locale as never,
 	});
 
 	return inst;

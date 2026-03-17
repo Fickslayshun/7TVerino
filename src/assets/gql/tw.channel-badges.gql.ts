@@ -1,36 +1,23 @@
 import gql from "graphql-tag";
+import { twitchBadgeFragment } from "./tw.fragment.gql";
 
 export const twitchChannelBadgesQuery = gql`
 	query ChannelBadges($login: String!) {
 		badges {
-			id
-			image1x
-			image2x
-			image4x
-			setID
-			title
-			version
-			clickAction
-			clickURL
+			...badge
 			__typename
 		}
 		user(login: $login) {
 			id
 			login
 			broadcastBadges {
-				id
-				image1x
-				image2x
-				image4x
-				setID
-				title
-				version
-				clickAction
-				clickURL
+				...badge
 				__typename
 			}
 		}
 	}
+
+	${twitchBadgeFragment}
 `;
 
 export namespace twitchChannelBadgesQuery {

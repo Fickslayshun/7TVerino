@@ -260,6 +260,11 @@ onUnmounted(() => {
 .scrollable-container {
 	overflow: hidden;
 	position: relative;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	height: 100%;
+	box-sizing: border-box;
 
 	--theme-background-scrollbar-thumb: rgb(84, 84, 84);
 	--theme-background-scrollbar: rgb(50, 53, 66);
@@ -268,9 +273,13 @@ onUnmounted(() => {
 	.scrollable-contents {
 		height: 100%;
 		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
 		scrollbar-width: none;
+		overflow-x: hidden;
 		overflow-y: scroll;
-
+		
 		&::-webkit-scrollbar {
 			width: 0;
 			height: 0;

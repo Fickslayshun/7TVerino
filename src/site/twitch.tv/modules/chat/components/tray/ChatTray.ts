@@ -10,7 +10,28 @@ interface ElementComponentAndProps<P = any> {
 	props: P;
 }
 
+export interface ActiveReplyTrayState {
+	channelID: string;
+	id: string;
+	authorID?: string;
+	body: string;
+	deleted: boolean;
+	username?: string;
+	displayName?: string;
+	thread?: {
+		deleted: boolean;
+		id: string;
+		login: string;
+	};
+	close?: () => void;
+}
+
 export const trayElements = shallowReactive(new Set<ElementComponentAndProps>());
+export const activeReplyTray = shallowRef<ActiveReplyTrayState | null>(null);
+
+export function setActiveReplyTray(next: ActiveReplyTrayState | null): void {
+	activeReplyTray.value = next;
+}
 
 function toReactComponent<P extends object, T extends Component<P>>(
 	component: T,
@@ -108,6 +129,7 @@ export function useTray<T extends keyof Twitch.ChatTray.Type>(
 	function clear(): void {
 		if (!mod.value || typeof mod.value.instance?.[trayType] !== "function") return;
 
+		if (type === "Reply") activeReplyTray.value = null;
 		mod.value.instance[trayType]!(null);
 	}
 
@@ -120,6 +142,7 @@ export function useTray<T extends keyof Twitch.ChatTray.Type>(
 			...props?.(),
 			close: () => {
 				stillOpen.value = false;
+				if (type === "Reply") activeReplyTray.value = null;
 				clear();
 			},
 		} as Twitch.TrayProps<T>;
@@ -132,6 +155,21 @@ export function useTray<T extends keyof Twitch.ChatTray.Type>(
 		if (!trayObject) {
 			stillOpen.value = false;
 			return stillOpen;
+		}
+
+		if (type === "Reply" && isReplyTray(p)) {
+			const replyProps = p as Twitch.TrayProps<"Reply"> & { channelID?: string };
+			activeReplyTray.value = {
+				channelID: replyProps.channelID ?? "",
+				id: p.id,
+				authorID: p.authorID,
+				body: p.body,
+				deleted: p.deleted,
+				username: p.username,
+				displayName: p.displayName,
+				thread: p.thread,
+				close: p.close,
+			};
 		}
 
 		mod.value.instance[trayType]!({

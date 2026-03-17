@@ -24,6 +24,17 @@ declare namespace SevenTV {
 		reason: string;
 	}
 
+	interface TVerinoRoomState {
+		loaded: boolean;
+		emoteOnly: boolean;
+		subscribersOnly: boolean;
+		followersOnlyEnabled: boolean;
+		followersOnlyDuration: number;
+		slowModeEnabled: boolean;
+		slowModeDuration: number;
+		uniqueChatEnabled: boolean;
+	}
+
 	interface TVerinoActiveTarget {
 		kind: "native" | "remote";
 		id: string;
@@ -101,6 +112,7 @@ declare namespace SevenTV {
 		value: T;
 		timestamp?: number;
 		serialize?: boolean;
+		persist?: boolean;
 	}
 
 	interface SettingNode<T = SettingType, K = SettingNode.ComponentType> {
@@ -121,6 +133,7 @@ declare namespace SevenTV {
 		defaultValue: T;
 		value?: T;
 		serialize?: boolean;
+		persist?: boolean;
 		disabledIf?: () => boolean;
 		predicate?: (p: T) => boolean;
 		effect?: (v: T) => void;

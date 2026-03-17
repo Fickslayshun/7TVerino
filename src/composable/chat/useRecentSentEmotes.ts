@@ -15,6 +15,7 @@ export interface RecentSentEmoteEntry {
 const enabled = useConfig<boolean>("chat.recent_emote_bar", false);
 const scope = useConfig<RecentEmoteBarScope>("chat.recent_emote_bar.scope", "7tv");
 const history = useConfig<Map<string, RecentSentEmoteEntry[]>>("chat.recent_emote_bar.history", new Map());
+const RECENT_EMOTE_HISTORY_SESSION_KEY = "seventv:recent-emote-bar:history";
 
 const SUPPORTED_PROVIDERS = new Set<RecentSentEmoteProvider>(["7TV", "PLATFORM", "BTTV", "FFZ"]);
 
@@ -55,6 +56,91 @@ function normalizeEntries(entries: RecentSentEmoteEntry[] | null | undefined): R
 
 	return out;
 }
+
+function normalizeHistoryEntries(
+	value: Iterable<[string, RecentSentEmoteEntry[]]> | null | undefined,
+): Map<string, RecentSentEmoteEntry[]> {
+	const out = new Map<string, RecentSentEmoteEntry[]>();
+
+	for (const [channelID, entries] of value ?? []) {
+		if (typeof channelID !== "string" || !channelID) continue;
+
+		const normalized = normalizeEntries(entries);
+		if (!normalized.length) continue;
+
+		out.set(channelID, normalized);
+	}
+
+	return out;
+}
+
+function isSameHistory(
+	currentHistory: Map<string, RecentSentEmoteEntry[]>,
+	nextHistory: Map<string, RecentSentEmoteEntry[]>,
+): boolean {
+	if (currentHistory.size !== nextHistory.size) return false;
+
+	for (const [channelID, currentEntries] of currentHistory) {
+		const nextEntries = nextHistory.get(channelID);
+		if (!nextEntries || currentEntries.length !== nextEntries.length) return false;
+
+		for (let i = 0; i < currentEntries.length; i++) {
+			if (
+				currentEntries[i]?.id !== nextEntries[i]?.id ||
+				currentEntries[i]?.name !== nextEntries[i]?.name ||
+				currentEntries[i]?.provider !== nextEntries[i]?.provider
+			) {
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+function persistHistoryToSession(nextHistory: Map<string, RecentSentEmoteEntry[]>): void {
+	try {
+		if (nextHistory.size === 0) {
+			window.sessionStorage.removeItem(RECENT_EMOTE_HISTORY_SESSION_KEY);
+			return;
+		}
+
+		window.sessionStorage.setItem(
+			RECENT_EMOTE_HISTORY_SESSION_KEY,
+			JSON.stringify(Array.from(nextHistory.entries())),
+		);
+	} catch {
+		// Ignore session storage failures and keep the in-memory history active.
+	}
+}
+
+function setHistory(nextHistory: Map<string, RecentSentEmoteEntry[]>): void {
+	const normalizedHistory = normalizeHistoryEntries(nextHistory.entries());
+	persistHistoryToSession(normalizedHistory);
+	history.value = normalizedHistory;
+}
+
+function restoreHistoryFromSession(): void {
+	try {
+		const rawHistory = window.sessionStorage.getItem(RECENT_EMOTE_HISTORY_SESSION_KEY);
+		if (!rawHistory) return;
+
+		const parsed = JSON.parse(rawHistory);
+		if (!(parsed instanceof Array)) return;
+
+		const restoredHistory = normalizeHistoryEntries(parsed);
+		if (!restoredHistory.size) return;
+
+		const currentHistory = normalizeHistoryEntries(history.value.entries());
+		if (isSameHistory(currentHistory, restoredHistory)) return;
+
+		setHistory(restoredHistory);
+	} catch {
+		window.sessionStorage.removeItem(RECENT_EMOTE_HISTORY_SESSION_KEY);
+	}
+}
+
+restoreHistoryFromSession();
 
 function getEntries(channelID: string): RecentSentEmoteEntry[] {
 	if (!channelID) return [];
@@ -115,7 +201,7 @@ function recordMessage(channelID: string, message: string, activeEmotes: Record<
 
 	const nextHistory = new Map(history.value);
 	nextHistory.set(channelID, normalizedEntries);
-	history.value = nextHistory;
+	setHistory(nextHistory);
 }
 
 export function useRecentSentEmotes() {

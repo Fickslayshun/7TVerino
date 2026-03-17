@@ -4,6 +4,9 @@
 		<TVerinoChatShell
 			v-if="tverinoEnabled"
 			:header-container="headerContainerEl"
+			:input-container="inputContainerEl"
+			:native-input-status="nativeTVerinoInputStatus"
+			:native-send-message="sendNativeTVerinoMessage"
 			:current-ctx="ctx"
 			:list="list"
 			:restrictions="restrictions"
@@ -27,6 +30,7 @@
 						:restrictions="restrictions"
 						:shared-chat-data="sharedChatDataByChannelID"
 						:message-handler="messageHandler"
+						:force-hydrated="forceStandardHydration"
 					/>
 				</div>
 
@@ -34,7 +38,10 @@
 				<div v-if="scroller.paused" class="seventv-message-buffer-notice" @click="scroller.unpause">
 					<PauseIcon />
 
-					<span v-if="scroller.pauseBuffer.length" :class="{ capped: scroller.pauseBuffer.length >= lineLimit }">
+					<span
+						v-if="scroller.pauseBuffer.length"
+						:class="{ capped: scroller.pauseBuffer.length >= lineLimit }"
+					>
 						{{ scroller.pauseBuffer.length }}
 					</span>
 					<span>{{ scroller.pauseBuffer.length > 0 ? "new messages" : "Chat Paused" }}</span>
@@ -51,8 +58,9 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onUnmounted, ref, toRaw, toRefs, watch, watchEffect } from "vue";
+import { computed, nextTick, onBeforeUnmount, onUnmounted, ref, toRaw, toRefs, watch, watchEffect } from "vue";
 import { refDebounced, until, useTimeout } from "@vueuse/core";
+import { useStore } from "@/store/main";
 import { ObserverPromise } from "@/common/Async";
 import { log } from "@/common/Logger";
 import { HookedInstance, awaitComponents } from "@/common/ReactHooks";
@@ -74,18 +82,18 @@ import { useRecentSentEmotes } from "@/composable/chat/useRecentSentEmotes";
 import { getModule } from "@/composable/useModule";
 import { useConfig } from "@/composable/useSettings";
 import { useWorker } from "@/composable/useWorker";
-import { useStore } from "@/store/main";
 import { MessagePartType, MessageType } from "@/site/twitch.tv";
 import ChatList from "@/site/twitch.tv/modules/chat/ChatList.vue";
 import PauseIcon from "@/assets/svg/icons/PauseIcon.vue";
 import ChatPubSub from "./ChatPubSub.vue";
+import TVerinoChatShell from "./TVerinoChatShell.vue";
 import ChatTray from "./components/tray/ChatTray.vue";
+import { getTVerinoSelfMessageState } from "./tverinoPendingMessage";
+import { setTwitchHelixAuth } from "./twitchHelixAuth";
+import { useTVerinoChatTransport } from "./useTVerinoChatTransport";
 import ChatData from "@/app/chat/ChatData.vue";
 import BasicSystemMessage from "@/app/chat/msg/BasicSystemMessage.vue";
 import UiScrollable from "@/ui/UiScrollable.vue";
-import TVerinoChatShell from "./TVerinoChatShell.vue";
-import { setTwitchHelixAuth } from "./twitchHelixAuth";
-import { useTVerinoChatTransport } from "./useTVerinoChatTransport";
 
 const props = defineProps<{
 	controller: HookedInstance<Twitch.ChatControllerComponent>;
@@ -100,7 +108,8 @@ const props = defineProps<{
 const mod = getModule<"TWITCH", "chat">("chat")!;
 const { sendMessage: sendWorkerMessage } = useWorker();
 const store = useStore();
-const { sendChatMessage: sendTVerinoChatMessage, emitLocalMessage: emitTVerinoLocalMessage } = useTVerinoChatTransport();
+const { sendChatMessage: sendTVerinoChatMessage, emitLocalMessage: emitTVerinoLocalMessage, getStatus } =
+	useTVerinoChatTransport();
 
 const { list, controller, room, presentation } = toRefs(props);
 
@@ -112,14 +121,20 @@ const containerEl = ref<HTMLElement>(el);
 const headerHostEl = document.createElement("seventv-container");
 headerHostEl.id = "seventv-tverino-header";
 const headerContainerEl = ref<HTMLElement>(headerHostEl);
-const replacedEl = ref<Element | null>(null);
+const alertHostEl = document.createElement("seventv-container");
+alertHostEl.id = "seventv-tverino-alerts";
+const inputHostEl = document.createElement("seventv-container");
+inputHostEl.id = "seventv-tverino-input";
+const inputContainerEl = ref<HTMLElement>(inputHostEl);
+const TVERINO_ACTIVE_VIEWPORT_CLASS = "seventv-tverino-active-viewport";
 let observedChatRoomRoot: HTMLElement | null = null;
 let observedMessageViewport: HTMLElement | null = null;
-let hiddenAlertNodes: Array<{
+let observedChatInputRoot: HTMLElement | null = null;
+let relocatedAlertNodes: {
 	el: HTMLElement;
-	display: string;
-	displayPriority: string;
-}> = [];
+	parent: Node | null;
+	nextSibling: ChildNode | null;
+}[] = [];
 let alertObserver: MutationObserver | null = null;
 
 const bounds = ref<DOMRect>(el.getBoundingClientRect());
@@ -141,12 +156,35 @@ const recentSentEmotes = useRecentSentEmotes();
 const properties = useChatProperties(ctx);
 const tools = useChatTools(ctx);
 const personalTimeoutMiddlewareKey = `personal-timeout:${ctx.id}`;
-const tverinoEnabled = useConfig<boolean>("chat.tverino.enabled", false);
+const tverinoEnabled = useConfig<boolean>("chat.tverino.enabled", true);
 const tverinoActiveTarget = useConfig<SevenTV.TVerinoActiveTarget>("chat.tverino.active_target", {
 	kind: "native",
 	id: "",
 	login: "",
 	displayName: "",
+});
+const forceStandardHydration = ref(!tverinoEnabled.value);
+const nativeTVerinoInputStatus = computed<SevenTV.TVerinoTransportStatus>(() => {
+	const chatProps = controller.value?.component?.props;
+	const sendMessage = chatProps?.chatConnectionAPI?.sendMessage;
+	if (typeof sendMessage === "function") {
+		return {
+			state: "connected",
+			reason: "",
+		};
+	}
+
+	if (chatProps?.initialStateLoaded === false) {
+		return {
+			state: "connecting",
+			reason: "Connecting to Twitch chat...",
+		};
+	}
+
+	return {
+		state: "error",
+		reason: "Twitch chat unavailable",
+	};
 });
 
 // line limit
@@ -168,104 +206,191 @@ watch(
 	{ immediate: true },
 );
 
-function discardRelocatedAlertLane() {
-	for (const node of hiddenAlertNodes) {
-		if (node.display) {
-			node.el.style.setProperty("display", node.display, node.displayPriority);
-		} else {
-			node.el.style.removeProperty("display");
+function clearRelocatedAlertNodes(restoreToSource: boolean): void {
+	const nodes = relocatedAlertNodes;
+	relocatedAlertNodes = [];
+
+	alertHostEl.classList.remove("active");
+
+	if (!nodes.length) return;
+
+	for (let i = nodes.length - 1; i >= 0; i--) {
+		const lane = nodes[i];
+		if (!lane) continue;
+
+		const { el, parent, nextSibling } = lane;
+		if (!restoreToSource) {
+			el.remove();
+			continue;
 		}
+
+		if (!parent || !("insertBefore" in parent)) {
+			el.remove();
+			continue;
+		}
+
+		if (nextSibling?.parentNode === parent) {
+			parent.insertBefore(el, nextSibling);
+			continue;
+		}
+
+		parent.appendChild(el);
 	}
-
-	hiddenAlertNodes = [];
 }
 
-function restoreRelocatedAlertLane() {
-	discardRelocatedAlertLane();
+function discardRelocatedAlertNodes(): void {
+	clearRelocatedAlertNodes(false);
 }
 
-function disconnectAlertRelocationObserver() {
+function restoreRelocatedAlertNodes() {
+	clearRelocatedAlertNodes(true);
+}
+
+function disconnectAlertRelocationObserver(removeViewportClass = false) {
 	alertObserver?.disconnect();
 	alertObserver = null;
 	observedChatRoomRoot = null;
+	if (removeViewportClass) {
+		observedMessageViewport?.classList.remove(TVERINO_ACTIVE_VIEWPORT_CLASS);
+	}
 	observedMessageViewport = null;
 }
 
-function resolveAlertLaneRoot(stickyAlert: HTMLElement, messageViewport: HTMLElement): HTMLElement | null {
-	let laneRoot = stickyAlert;
-	while (laneRoot.parentElement && !laneRoot.parentElement.contains(messageViewport)) {
-		laneRoot = laneRoot.parentElement;
-	}
+function syncTVerinoInputVisibility(): void {
+	const shouldShowTVerinoInput = tverinoEnabled.value;
 
-	if (laneRoot === messageViewport || laneRoot.contains(messageViewport)) return null;
-	return laneRoot;
-}
-
-function findTopAlertLanes(chatRoomRoot: HTMLElement): HTMLElement[] {
-	return Array.from(
-		chatRoomRoot.querySelectorAll<HTMLElement>(
-			"div.cEllaX, div.eIWExh, .sticky-community-highlight, [class*='community-highlight-stack'], [class*='community-highlight']",
-		),
+	inputHostEl.classList.toggle("active", shouldShowTVerinoInput);
+	observedChatInputRoot?.classList.toggle("seventv-tverino-native-input-hidden", shouldShowTVerinoInput);
+	observedChatRoomRoot?.classList.toggle(
+		"seventv-tverino-native-input-pending",
+		shouldShowTVerinoInput && !observedChatInputRoot,
 	);
 }
 
-function trackHiddenAlertNode(el: HTMLElement) {
-	if (hiddenAlertNodes.some((node) => node.el === el)) return;
+function resetTVerinoInputHost(): void {
+	observedChatRoomRoot?.classList.remove("seventv-tverino-native-input-pending");
+	observedChatInputRoot?.classList.remove("seventv-tverino-native-input-hidden");
+	observedChatInputRoot = null;
+	inputHostEl.classList.remove("active");
+	inputHostEl.remove();
+}
 
-	hiddenAlertNodes.push({
-		el,
-		display: el.style.getPropertyValue("display"),
-		displayPriority: el.style.getPropertyPriority("display"),
-	});
+function syncTVerinoInputHost(chatRoomRoot: HTMLElement | null): void {
+	if (!tverinoEnabled.value || !chatRoomRoot) {
+		resetTVerinoInputHost();
+		return;
+	}
+
+	chatRoomRoot.classList.add("seventv-tverino-native-input-pending");
+
+	const chatInputRoot = chatRoomRoot.querySelector(".chat-input");
+	if (!(chatInputRoot instanceof HTMLElement) || !chatInputRoot.parentElement) {
+		observedChatInputRoot?.classList.remove("seventv-tverino-native-input-hidden");
+		observedChatInputRoot = null;
+		inputHostEl.remove();
+		return;
+	}
+
+	if (observedChatInputRoot && observedChatInputRoot !== chatInputRoot) {
+		observedChatInputRoot.classList.remove("seventv-tverino-native-input-hidden");
+	}
+
+	observedChatInputRoot = chatInputRoot;
+
+	if (inputHostEl.parentElement !== chatInputRoot.parentElement || inputHostEl.nextSibling !== chatInputRoot) {
+		chatInputRoot.parentElement.insertBefore(inputHostEl, chatInputRoot);
+	}
+
+	syncTVerinoInputVisibility();
+	chatRoomRoot.classList.remove("seventv-tverino-native-input-pending");
+}
+
+function collectRelocatableAlertNodes(messageViewport: HTMLElement): HTMLElement[] {
+	const parent = messageViewport.parentElement;
+	if (!parent) return [];
+
+	const selectors = [
+		"div.eIWExh",
+		"div.cEllaX",
+		".sticky-community-highlight",
+		"[class*='community-highlight-stack__card']",
+		"[class*='community-highlight-stack']",
+		"[class*='community-highlight']",
+		".core-error",
+	];
+
+	const matchesRelocatableModule = (el: HTMLElement): boolean =>
+		selectors.some((selector) => el.matches(selector) || !!el.querySelector(selector));
+
+	const nodes: HTMLElement[] = [];
+	let current = parent.firstElementChild as HTMLElement | null;
+	while (current) {
+		if (current === messageViewport) break;
+		if (current === headerHostEl || current === alertHostEl) {
+			current = current.nextElementSibling as HTMLElement | null;
+			continue;
+		}
+		if (matchesRelocatableModule(current)) {
+			nodes.push(current);
+		}
+
+		current = current.nextElementSibling as HTMLElement | null;
+	}
+
+	return nodes;
 }
 
 function syncAlertDock(chatRoomRoot: HTMLElement | null, messageViewport: HTMLElement | null) {
 	if (!tverinoEnabled.value || !chatRoomRoot || !messageViewport) {
-		restoreRelocatedAlertLane();
+		restoreRelocatedAlertNodes();
+		return;
+	}
+
+	const isNativeTargetActive =
+		tverinoActiveTarget.value.kind === "native" && tverinoActiveTarget.value.id === ctx.id;
+	if (!isNativeTargetActive) {
+		alertHostEl.classList.remove("active");
 		return;
 	}
 
 	observedChatRoomRoot = chatRoomRoot;
 	observedMessageViewport = messageViewport;
 
-	const topAlertLanes = findTopAlertLanes(chatRoomRoot);
-	if (!topAlertLanes.length) {
-		restoreRelocatedAlertLane();
+	const nativeAlertNodes = collectRelocatableAlertNodes(messageViewport);
+	if (nativeAlertNodes.length) {
+		const sameNodes =
+			relocatedAlertNodes.length === nativeAlertNodes.length &&
+			relocatedAlertNodes.every((lane, index) => lane.el === nativeAlertNodes[index]);
+
+		if (!sameNodes) {
+			discardRelocatedAlertNodes();
+			relocatedAlertNodes = nativeAlertNodes.map((node) => ({
+				el: node,
+				parent: node.parentNode,
+				nextSibling: node.nextSibling,
+			}));
+		}
+
+		const needsMove =
+			alertHostEl.childElementCount !== nativeAlertNodes.length ||
+			nativeAlertNodes.some((node) => node.parentElement !== alertHostEl);
+		if (needsMove) {
+			alertHostEl.replaceChildren(...nativeAlertNodes);
+		}
+
+		alertHostEl.classList.add("active");
 		return;
 	}
 
-	const nextHiddenNodes = new Set<HTMLElement>();
-	for (const lane of topAlertLanes) {
-		nextHiddenNodes.add(lane);
-		const exactAlertLane = lane.closest("div.cEllaX") as HTMLElement | null;
-		if (exactAlertLane) nextHiddenNodes.add(exactAlertLane);
-		const exactAlertWrapper = lane.closest("div.eIWExh") as HTMLElement | null;
-		if (exactAlertWrapper) nextHiddenNodes.add(exactAlertWrapper);
-
-		let node: HTMLElement | null = lane;
-		while (node && node !== chatRoomRoot && !node.contains(messageViewport)) {
-			nextHiddenNodes.add(node);
-			const parent: HTMLElement | null = node.parentElement;
-			if (!parent || parent.contains(messageViewport)) break;
-			node = parent;
-		}
+	if (
+		relocatedAlertNodes.length > 0 &&
+		relocatedAlertNodes.every((lane) => lane.el.isConnected && alertHostEl.contains(lane.el))
+	) {
+		alertHostEl.classList.add("active");
+		return;
 	}
 
-	const hiddenNow = hiddenAlertNodes.map((node) => node.el);
-	const unchanged =
-		hiddenNow.length === nextHiddenNodes.size && hiddenNow.every((node) => nextHiddenNodes.has(node));
-	if (unchanged) return;
-
-	restoreRelocatedAlertLane();
-
-	hiddenAlertNodes = [];
-	for (const el of nextHiddenNodes) {
-		trackHiddenAlertNode(el);
-	}
-
-	for (const node of hiddenAlertNodes) {
-		node.el.style.setProperty("display", "none", "important");
-	}
+	discardRelocatedAlertNodes();
 }
 
 function connectAlertRelocationObserver(chatRoomRoot: HTMLElement | null, messageViewport: HTMLElement | null) {
@@ -302,30 +427,98 @@ watchEffect(() => {
 	containerEl.value = rootNode as HTMLElement;
 
 	const messageViewport =
-		(rootNode.closest("div[aria-label='Chat messages'].chat-list--default") as HTMLElement | null) ?? (rootNode as HTMLElement);
-	const chatRoomRoot = rootNode.closest("section[data-test-selector='chat-room-component-layout']") as HTMLElement | null;
+		(rootNode.closest("div[aria-label='Chat messages'].chat-list--default") as HTMLElement | null) ??
+		(rootNode as HTMLElement);
+	const chatRoomRoot = rootNode.closest(
+		"section[data-test-selector='chat-room-component-layout']",
+	) as HTMLElement | null;
+
+	if (observedMessageViewport && observedMessageViewport !== messageViewport) {
+		observedMessageViewport.classList.remove(TVERINO_ACTIVE_VIEWPORT_CLASS);
+	}
+	messageViewport.classList.add(TVERINO_ACTIVE_VIEWPORT_CLASS);
+	observedMessageViewport = messageViewport;
 
 	const headerInsertionParent = messageViewport.parentElement;
 	const headerInsertBefore: Node | null = messageViewport;
 
-	if (
-		!tverinoEnabled.value ||
-		!headerInsertionParent ||
-		!headerInsertBefore
-	) {
+	if (!tverinoEnabled.value || !headerInsertionParent || !headerInsertBefore) {
 		disconnectAlertRelocationObserver();
-		restoreRelocatedAlertLane();
+		restoreRelocatedAlertNodes();
+		resetTVerinoInputHost();
 		headerHostEl.remove();
+		alertHostEl.remove();
 		return;
 	}
 
-	if (headerHostEl.parentElement !== headerInsertionParent || headerHostEl.nextSibling !== headerInsertBefore) {
-		headerInsertionParent.insertBefore(headerHostEl, headerInsertBefore);
+	if (alertHostEl.parentElement !== headerInsertionParent || alertHostEl.nextSibling !== headerInsertBefore) {
+		headerInsertionParent.insertBefore(alertHostEl, headerInsertBefore);
 	}
 
+	if (headerHostEl.parentElement !== headerInsertionParent || headerHostEl.nextSibling !== alertHostEl) {
+		headerInsertionParent.insertBefore(headerHostEl, alertHostEl);
+	}
+
+	syncTVerinoInputHost(chatRoomRoot);
 	connectAlertRelocationObserver(chatRoomRoot, messageViewport);
 	syncAlertDock(chatRoomRoot, messageViewport);
 });
+
+watch(
+	[tverinoEnabled, tverinoActiveTarget],
+	() => {
+		syncTVerinoInputVisibility();
+		syncAlertDock(observedChatRoomRoot, observedMessageViewport);
+	},
+	{ deep: true, immediate: true },
+);
+
+let standardHydrationReleaseToken = 0;
+
+async function releaseStandardHydrationWhenReady(token: number): Promise<void> {
+	if (tverinoEnabled.value) return;
+
+	const scroller = scrollerRef.value;
+	if (!scroller?.container) return;
+
+	await nextTick();
+	if (token !== standardHydrationReleaseToken || tverinoEnabled.value) return;
+
+	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+	if (token !== standardHydrationReleaseToken || tverinoEnabled.value) return;
+
+	await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+	if (token !== standardHydrationReleaseToken || tverinoEnabled.value) return;
+
+	forceStandardHydration.value = false;
+}
+
+watch(
+	tverinoEnabled,
+	(enabled) => {
+		standardHydrationReleaseToken += 1;
+		const token = standardHydrationReleaseToken;
+
+		if (enabled) {
+			forceStandardHydration.value = false;
+			return;
+		}
+
+		forceStandardHydration.value = true;
+		void releaseStandardHydrationWhenReady(token);
+	},
+	{ immediate: true },
+);
+
+watch(
+	scrollerRef,
+	(scroller) => {
+		if (tverinoEnabled.value || !forceStandardHydration.value || !scroller?.container) return;
+
+		void releaseStandardHydrationWhenReady(standardHydrationReleaseToken);
+	},
+	{ flush: "post" },
+);
 
 const messageHandler = ref<Twitch.MessageHandlerAPI | null>(null);
 
@@ -414,6 +607,45 @@ function emitLocalSystemMessage(text: string): void {
 	messages.add(message, true);
 }
 
+function createNativeTVerinoNonce(): string {
+	return `native:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function sendNativeTVerinoMessage(
+	message: string,
+	reply?: NonNullable<Twitch.DisplayableMessage["reply"]>,
+): boolean {
+	if (reply?.parentMsgId) {
+		const transportStatus = getStatus();
+		if (transportStatus.state !== "connected" || !ctx.username) {
+			emitLocalSystemMessage(transportStatus.reason || "Reply unavailable while Twitch chat is reconnecting");
+			return false;
+		}
+
+		sendTVerinoChatMessage(ctx.id, ctx.username, message, createNativeTVerinoNonce(), reply);
+		return true;
+	}
+
+	const chatProps = controller.value?.component?.props as
+		| {
+				chatConnectionAPI?: { sendMessage?: Function };
+				onSendMessage?: (value: string, reply: NonNullable<Twitch.DisplayableMessage["reply"]>) => unknown;
+		  }
+		| undefined;
+	const chatConnection = chatProps?.chatConnectionAPI;
+	if (!chatProps || !chatConnection || typeof chatConnection.sendMessage !== "function") {
+		return false;
+	}
+
+	try {
+		chatConnection.sendMessage.call(chatConnection, message);
+		return true;
+	} catch (error) {
+		log.error("<Chat>", "Failed to send native TVerino message", String(error));
+		return false;
+	}
+}
+
 function createTVerinoLocalMessage(
 	target: SevenTV.TVerinoActiveTarget,
 	message: string,
@@ -423,8 +655,12 @@ function createTVerinoLocalMessage(
 		return null;
 	}
 
+	const selfState = getTVerinoSelfMessageState(target.id);
 	const displayName =
-		("displayName" in store.identity && store.identity.displayName) || store.identity.username;
+		selfState?.user?.userDisplayName ||
+		selfState?.user?.displayName ||
+		("displayName" in store.identity && store.identity.displayName) ||
+		store.identity.username;
 
 	return {
 		id: nonce,
@@ -432,17 +668,17 @@ function createTVerinoLocalMessage(
 		nonce,
 		channelID: target.id,
 		user: {
-			color: "",
+			color: selfState?.user?.color || "",
 			isIntl: false,
-			isSubscriber: false,
+			isSubscriber: !!(selfState?.badges?.subscriber || selfState?.badges?.founder),
 			userDisplayName: displayName,
 			displayName,
 			userID: store.identity.id,
 			userLogin: store.identity.username,
-			userType: "",
+			userType: selfState?.user?.userType || "",
 		},
-		badgeDynamicData: {},
-		badges: {},
+		badgeDynamicData: { ...(selfState?.badgeDynamicData ?? {}) },
+		badges: { ...(selfState?.badges ?? {}) },
 		deleted: false,
 		banned: false,
 		hidden: false,
@@ -483,7 +719,7 @@ function handlePersonalTimeoutCommand(input: string): string | null {
 	}
 
 	if (!personalTimeouts.enabled.value) {
-		emitLocalSystemMessage("Enable Personal Timeouts in 7TVFixed settings before using /ptimeout commands.");
+		emitLocalSystemMessage("Enable Personal Timeouts in 7TVerino settings before using /ptimeout commands.");
 		return null;
 	}
 
@@ -691,10 +927,21 @@ const messageBufferComponent = ref<Twitch.MessageBufferComponent | null>(null);
 const messageBufferComponentDbc = refDebounced(messageBufferComponent, 100);
 
 const isLoadingHistoricalMessages = ref(true);
-watch(isLoadingHistoricalMessages, (isLoading) => {
+const didApplyHistoricalBuffer = ref(false);
+
+function applyHistoricalBufferIfReady(): void {
+	if (didApplyHistoricalBuffer.value || isLoadingHistoricalMessages.value) return;
+
 	const buffer = messageBufferComponent.value?.buffer;
-	if (isLoading || !buffer) return;
+	if (!buffer) return;
+
+	didApplyHistoricalBuffer.value = true;
 	handleBuffer(buffer);
+}
+
+watch(isLoadingHistoricalMessages, (isLoading) => {
+	if (isLoading) return;
+	applyHistoricalBufferIfReady();
 });
 
 function handleBuffer(buffer: Twitch.MessageBufferComponent["buffer"]) {
@@ -726,10 +973,16 @@ watch(messageBufferComponentDbc, (msgBuf, old) => {
 	if (old && msgBuf !== old) {
 		unsetPropertyHook(old, "blockedUsers");
 		unsetPropertyHook(old, "props");
-	} else if (msgBuf) {
+	}
+
+	if (msgBuf) {
+		didApplyHistoricalBuffer.value = false;
 		definePropertyHook(msgBuf, "props", {
 			value(props) {
 				isLoadingHistoricalMessages.value = props.isLoadingHistoricalMessages;
+				if (!props.isLoadingHistoricalMessages) {
+					nextTick(() => applyHistoricalBufferIfReady());
+				}
 			},
 		});
 
@@ -747,6 +1000,7 @@ watch(
 	(chan) => {
 		if (!chan || !ctx.setCurrentChannel(chan)) return;
 
+		didApplyHistoricalBuffer.value = false;
 		messages.clear();
 		scroller.unpause();
 
@@ -814,13 +1068,14 @@ onBeforeUnmount(() => {
 
 onUnmounted(() => {
 	resizeObserver.disconnect();
-	disconnectAlertRelocationObserver();
+	disconnectAlertRelocationObserver(true);
 	mod.instance?.messageSendMiddleware.delete(personalTimeoutMiddlewareKey);
 
 	el.remove();
 	headerHostEl.remove();
-	restoreRelocatedAlertLane();
-	if (replacedEl.value) replacedEl.value.classList.remove("seventv-checked");
+	alertHostEl.remove();
+	resetTVerinoInputHost();
+	restoreRelocatedAlertNodes();
 
 	log.debug("<ChatController> Unmounted");
 
@@ -842,11 +1097,92 @@ seventv-container#seventv-tverino-header {
 	flex: 0 0 auto;
 }
 
+seventv-container#seventv-tverino-alerts {
+	display: none;
+	flex: 0 0 auto;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	overflow: hidden;
+	background: var(--seventv-background-shade-1);
+
+	&.active {
+		display: block;
+	}
+
+	> * {
+		display: block;
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
+	}
+
+	.community-highlight,
+	[class*="community-highlight-stack"],
+	[class*="community-highlight"],
+	.scrollable-area {
+		max-width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
+	}
+}
+
+seventv-container#seventv-tverino-input {
+	display: none;
+	flex: 0 0 auto;
+}
+
+seventv-container#seventv-tverino-input.active {
+	display: block;
+}
+
+section[data-test-selector="chat-room-component-layout"].seventv-tverino-native-input-pending .chat-input {
+	pointer-events: none !important;
+	opacity: 0 !important;
+}
+
+.chat-input.seventv-tverino-native-input-hidden {
+	position: absolute !important;
+	right: 0 !important;
+	bottom: 0 !important;
+	left: 0 !important;
+	height: 0 !important;
+	min-height: 0 !important;
+	overflow: hidden !important;
+	visibility: hidden !important;
+	pointer-events: none !important;
+	opacity: 0 !important;
+}
+
+.chat-list--default.seventv-tverino-active-viewport {
+	overflow-x: hidden !important;
+
+	> :not(#Exit-chat-container):not(seventv-container.seventv-chat-list) {
+		display: none !important;
+	}
+
+	> seventv-container.seventv-chat-list {
+		display: flex;
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		min-height: 0;
+		box-sizing: border-box;
+	}
+}
+
 seventv-container.seventv-chat-list {
 	display: flex;
 	flex-direction: column !important;
 	-webkit-box-flex: 1 !important;
 	flex-grow: 1 !important;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	min-height: 0;
+	box-sizing: border-box;
 	overflow: auto !important;
 	overflow-x: hidden !important;
 
@@ -927,6 +1263,11 @@ seventv-container.seventv-chat-list {
 .seventv-chat-scroller {
 	z-index: 1;
 	height: 100%;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	overflow-x: hidden;
 }
 
 .community-highlight {
@@ -941,11 +1282,6 @@ seventv-container.seventv-chat-list {
 	&:hover {
 		opacity: 1;
 	}
-}
-
-/* stylelint-disable-next-line selector-class-pattern */
-.chat-list--default.seventv-checked {
-	display: none !important;
 }
 
 [data-a-target="emote-picker-button"] {

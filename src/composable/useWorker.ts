@@ -212,6 +212,9 @@ function useHandlers(mp: MessagePort) {
 			case "TVERINO_CHAT_MESSAGE":
 				events.emit("tverino_chat_message", data as TypedWorkerMessage<"TVERINO_CHAT_MESSAGE">);
 				break;
+			case "TVERINO_CHAT_ROOMSTATE":
+				events.emit("tverino_chat_roomstate", data as TypedWorkerMessage<"TVERINO_CHAT_ROOMSTATE">);
+				break;
 			case "TVERINO_CHAT_SEND_RESULT":
 				events.emit("tverino_chat_send_result", data as TypedWorkerMessage<"TVERINO_CHAT_SEND_RESULT">);
 				break;
@@ -220,6 +223,12 @@ function useHandlers(mp: MessagePort) {
 				break;
 			case "TVERINO_BADGE_SETS_RESULT":
 				events.emit("tverino_badge_sets_result", data as TypedWorkerMessage<"TVERINO_BADGE_SETS_RESULT">);
+				break;
+			case "TVERINO_CUSTOM_REWARD_REDEEM_RESULT":
+				events.emit(
+					"tverino_custom_reward_redeem_result",
+					data as TypedWorkerMessage<"TVERINO_CUSTOM_REWARD_REDEEM_RESULT">,
+				);
 				break;
 		}
 	});
@@ -289,9 +298,11 @@ export type WorkletEventName =
 	| "user_updated"
 	| "chat_message_processed"
 	| "tverino_chat_message"
+	| "tverino_chat_roomstate"
 	| "tverino_chat_send_result"
 	| "tverino_chat_status"
-	| "tverino_badge_sets_result";
+	| "tverino_badge_sets_result"
+	| "tverino_custom_reward_redeem_result";
 
 type WorkletTypedEvent<EVN extends WorkletEventName> = {
 	ready: object;
@@ -308,9 +319,11 @@ type WorkletTypedEvent<EVN extends WorkletEventName> = {
 	user_updated: TypedWorkerMessage<"USER_UPDATED">;
 	chat_message_processed: TypedWorkerMessage<"PROCESS_CHAT_MESSAGE_RESULT">;
 	tverino_chat_message: TypedWorkerMessage<"TVERINO_CHAT_MESSAGE">;
+	tverino_chat_roomstate: TypedWorkerMessage<"TVERINO_CHAT_ROOMSTATE">;
 	tverino_chat_send_result: TypedWorkerMessage<"TVERINO_CHAT_SEND_RESULT">;
 	tverino_chat_status: TypedWorkerMessage<"TVERINO_CHAT_STATUS">;
 	tverino_badge_sets_result: TypedWorkerMessage<"TVERINO_BADGE_SETS_RESULT">;
+	tverino_custom_reward_redeem_result: TypedWorkerMessage<"TVERINO_CUSTOM_REWARD_REDEEM_RESULT">;
 }[EVN];
 
 export class WorkletEvent<T extends WorkletEventName> extends CustomEvent<WorkletTypedEvent<T>> {

@@ -56,16 +56,16 @@
 							<p>Suspicious User</p>
 							<span>{{ suspiciousUserStatusLabel }}</span>
 						</div>
-						<span v-if="suspiciousUser.types.length" class="seventv-user-card-low-trust-type">
-							{{ suspiciousUser.types.join(", ") }}
+						<span v-if="suspiciousUserTypes.length" class="seventv-user-card-low-trust-type">
+							{{ suspiciousUserTypes.join(", ") }}
 						</span>
 					</div>
 					<div class="seventv-user-card-low-trust-details">
 						<p v-if="suspiciousUser.banEvasion.likelihood">
 							<strong>Ban Evasion:</strong> {{ formatLikelihood(suspiciousUser.banEvasion.likelihood) }}
 						</p>
-						<p v-if="suspiciousUser.sharedBanChannels.length">
-							<strong>Shared Bans:</strong> {{ suspiciousUser.sharedBanChannels.length }}
+						<p v-if="suspiciousUserSharedBanChannels.length">
+							<strong>Shared Bans:</strong> {{ suspiciousUserSharedBanChannels.length }}
 						</p>
 						<p v-if="suspiciousUser.treatment.updatedBy">
 							<strong>Updated By:</strong> {{ suspiciousUser.treatment.updatedBy }}
@@ -77,35 +77,27 @@
 					<div class="seventv-user-card-metrics">
 						<p v-if="data.targetUser.createdAt">
 							<CakeIcon />
-							{{ t("user_card.account_created_date", { date: data.targetUser.createdAt }) }}
+							{{ formatAccountCreatedDate(data.targetUser.createdAt) }}
 						</p>
 
 						<p v-if="data.targetUser.relationship.followedAt">
 							<HeartIcon />
-							{{ t("user_card.following_since_date", { date: data.targetUser.relationship.followedAt }) }}
+							{{ formatFollowingSinceDate(data.targetUser.relationship.followedAt) }}
 						</p>
 
 						<p v-if="data.targetUser.relationship.subscription.isSubscribed">
 							<StarIcon />
 							{{
 								data.targetUser.relationship.subscription.months
-									? `${t("user_card.subscription_tier", {
-											tier: data.targetUser.relationship.subscription.tier[0],
-									  })} -
-									  ${t("user_card.subscription_length", {
-											length: data.targetUser.relationship.subscription.months,
-										})}`
+									? `${formatSubscriptionTier(data.targetUser.relationship.subscription.tier[0])} -
+									  ${formatSubscriptionLength(data.targetUser.relationship.subscription.months)}`
 									: `${t("user_card.hidden_subscription_status")}`
 							}}
 						</p>
 
 						<p v-else-if="data.targetUser.relationship.subscription.months">
 							<StarIcon />
-							{{
-								t("user_card.previously_subscription_length", {
-									length: data.targetUser.relationship.subscription.months,
-								})
-							}}
+							{{ formatPreviousSubscriptionLength(data.targetUser.relationship.subscription.months) }}
 						</p>
 					</div>
 
@@ -288,9 +280,24 @@ const suspiciousUser = computed<LowTrustUserProperties | null>(() => {
 	if (!targetID) return null;
 
 	const lowTrust = messages.lowTrustUsers[targetID];
-	if (!lowTrust || lowTrust.treatment.type === "NONE") return null;
+	const treatmentType = lowTrust?.treatment?.type ?? "NONE";
+	if (!lowTrust || treatmentType === "NONE") return null;
 
-	return lowTrust;
+	return {
+		...lowTrust,
+		types: Array.isArray(lowTrust.types) ? lowTrust.types : [],
+		banEvasion: {
+			likelihood: lowTrust.banEvasion?.likelihood ?? "POSSIBLE",
+			evaluatedAt: lowTrust.banEvasion?.evaluatedAt ?? null,
+		},
+		sharedBanChannels: Array.isArray(lowTrust.sharedBanChannels) ? lowTrust.sharedBanChannels : [],
+		treatment: {
+			type: treatmentType,
+			updatedAt: lowTrust.treatment?.updatedAt ?? null,
+			updatedBy: lowTrust.treatment?.updatedBy ?? null,
+		},
+		channelSharedBansUpdatedAt: lowTrust.channelSharedBansUpdatedAt ?? null,
+	};
 });
 
 const suspiciousUserStatusLabel = computed(() => {
@@ -305,6 +312,9 @@ const suspiciousUserStatusLabel = computed(() => {
 			return "";
 	}
 });
+
+const suspiciousUserTypes = computed(() => suspiciousUser.value?.types ?? []);
+const suspiciousUserSharedBanChannels = computed(() => suspiciousUser.value?.sharedBanChannels ?? []);
 
 function getActiveTimeline(): Record<string, ChatMessage[]> {
 	return data.timelines[data.activeTab];
@@ -536,6 +546,36 @@ function formatLikelihood(likelihood: LowTrustUserProperties["banEvasion"]["like
 		default:
 			return likelihood;
 	}
+}
+
+function formatAccountCreatedDate(date: string): string {
+	return formatUserCardMessage("user_card.account_created_date", { date });
+}
+
+function formatFollowingSinceDate(date: string): string {
+	return formatUserCardMessage("user_card.following_since_date", { date });
+}
+
+function formatSubscriptionTier(tier: string): string {
+	return formatUserCardMessage("user_card.subscription_tier", { tier });
+}
+
+function formatSubscriptionLength(length: number): string {
+	return formatUserCardMessage("user_card.subscription_length", { length });
+}
+
+function formatPreviousSubscriptionLength(length: number): string {
+	return formatUserCardMessage("user_card.previously_subscription_length", { length });
+}
+
+function formatUserCardMessage(key: string, values: Record<string, string | number>): string {
+	const translated = t(key, values);
+	if (!translated.includes("{")) return translated;
+
+	return translated.replace(/\{(\w+)\}/g, (match, token: string) => {
+		const value = values[token];
+		return value === undefined || value === null ? match : String(value);
+	});
 }
 
 watchEffect(async () => {

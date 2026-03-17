@@ -2,7 +2,11 @@
 	<div
 		ref="boxRef"
 		class="seventv-emote-box"
-		:class="{ 'with-border': withBorder }"
+		:class="{
+			'with-border': withBorder,
+			'inline-chat': inlineChat,
+		}"
+		:style="inlineChatStyle"
 		:ratio="determineRatio(emote)"
 		@mouseenter="onShowTooltip"
 		@mouseleave="hide()"
@@ -24,7 +28,7 @@
 			:id="emote.id"
 			:alt="emote.name"
 			class="seventv-chat-emote seventv-emoji"
-			:style="{ width: `${scale * 2}rem`, height: `${scale * 2}rem` }"
+			:style="inlineChat ? undefined : { width: `${scale * 2}rem`, height: `${scale * 2}rem` }"
 			@mouseenter="onShowTooltip"
 			@mouseleave="hide()"
 		/>
@@ -78,11 +82,13 @@ const props = withDefaults(
 		clickable?: boolean;
 		format?: SevenTV.ImageFormat;
 		overlaid?: Record<string, SevenTV.ActiveEmote> | undefined;
+		showTooltip?: boolean;
 		unload?: boolean;
 		scale?: number;
+		inlineChat?: boolean;
 		withBorder?: boolean;
 	}>(),
-	{ unload: false, scale: 1, withBorder: false },
+	{ showTooltip: true, unload: false, scale: 1, inlineChat: false, withBorder: false },
 );
 
 const emit = defineEmits<{
@@ -110,6 +116,14 @@ const baseHeight = ref(0);
 const shouldThrottleAnimations = computed(
 	() => performance.animatedEmoteThrottlingEnabled.value && (pageVisibility.value !== "visible" || props.unload),
 );
+const inlineChat = computed(() => props.inlineChat);
+const inlineChatStyle = computed(() => {
+	if (!inlineChat.value) return undefined;
+
+	return {
+		"--seventv-inline-emote-size": `${props.scale * 2}em`,
+	};
+});
 
 const onImageLoad = (event: Event) => {
 	if (!(event.target instanceof HTMLImageElement)) return;
@@ -235,6 +249,7 @@ function onShowEmoteCard(ev: MouseEvent) {
 }
 
 function onShowTooltip() {
+	if (!props.showTooltip) return;
 	show(boxRef.value);
 }
 
@@ -263,6 +278,14 @@ onBeforeUnmount(hide);
 .seventv-emote-box {
 	display: grid;
 	overflow: clip;
+}
+
+.seventv-emote-box.inline-chat {
+	display: inline-grid;
+	align-items: end;
+	line-height: 0;
+	vertical-align: middle;
+	overflow: visible;
 }
 
 .with-border {
@@ -305,6 +328,11 @@ svg.seventv-emoji {
 	height: 2rem;
 }
 
+.seventv-emote-box.inline-chat :deep(svg.seventv-emoji) {
+	width: auto;
+	height: var(--seventv-inline-emote-size);
+}
+
 .seventv-chat-emote {
 	font-weight: 900;
 	grid-column: 1;
@@ -315,6 +343,15 @@ svg.seventv-emoji {
 	&:hover {
 		cursor: pointer;
 	}
+}
+
+.seventv-emote-box.inline-chat .seventv-chat-emote {
+	display: block;
+	width: auto;
+	height: var(--seventv-inline-emote-size);
+	max-width: none;
+	max-height: none;
+	vertical-align: middle;
 }
 
 img.blur {

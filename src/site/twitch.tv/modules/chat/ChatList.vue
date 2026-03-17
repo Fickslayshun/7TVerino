@@ -11,9 +11,9 @@
 			:style="!row.hydrated ? { height: `${row.height}px` } : undefined"
 		>
 			<template v-if="row.hydrated && row.msg.instance">
-				<component
-					:is="isModSliderEnabled && ctx.actor.roles.has('MODERATOR') && row.msg.author ? ModSlider : 'span'"
-					v-bind="{ msg: row.msg }"
+				<ModSlider
+					v-if="!props.disableModSlider && isModSliderEnabled && ctx.actor.roles.has('MODERATOR') && row.msg.author"
+					:msg="row.msg"
 				>
 					<component :is="row.msg.instance" v-slot="slotProps" v-bind="row.msg.componentProps" :msg="row.msg">
 						<UserMessage
@@ -25,6 +25,16 @@
 							:show-rich-embeds="performance.richEmbedsEnabled.value"
 						/>
 					</component>
+				</ModSlider>
+				<component v-else :is="row.msg.instance" v-slot="slotProps" v-bind="row.msg.componentProps" :msg="row.msg">
+					<UserMessage
+						v-bind="slotProps"
+						:msg="row.msg"
+						:emotes="emotes.active"
+						:chatters="messages.chattersByUsername"
+						:hydrated="row.hydrated"
+						:show-rich-embeds="performance.richEmbedsEnabled.value"
+					/>
 				</component>
 			</template>
 			<template v-else-if="row.hydrated">
@@ -55,7 +65,7 @@ import { log } from "@/common/Logger";
 import { HookedInstance } from "@/common/ReactHooks";
 import { defineFunctionHook, unsetPropertyHook } from "@/common/Reflection";
 import { convertCheerEmote, convertTwitchEmote } from "@/common/Transform";
-import { ChatMessage, ChatMessageModeration, ChatUser } from "@/common/chat/ChatMessage";
+import { ChatMessage, ChatMessageModeration, ChatUser, LowTrustUserProperties } from "@/common/chat/ChatMessage";
 import type { NormalizedChatMessage } from "@/common/chat/PerformanceProcessor";
 import { IsChatMessage, IsDisplayableMessage, IsModerationMessage } from "@/common/type-predicates/Messages";
 import { useChannelContext } from "@/composable/channel/useChannelContext";
@@ -86,6 +96,7 @@ const props = defineProps<{
 	messageHandler: Twitch.MessageHandlerAPI | null;
 	sharedChatData: Map<string, Twitch.SharedChat> | null;
 	forceHydrated?: boolean;
+	disableModSlider?: boolean;
 }>();
 
 const ctx = useChannelContext();
@@ -177,6 +188,38 @@ for (const [path, component] of Object.entries(types)) {
 
 function getMessageComponent(type: MessageType) {
 	return typeMap[type] ?? null;
+}
+
+function getTwitchAuthorData(msgData: Twitch.AnyMessage): Twitch.ChatUser | null {
+	return msgData.user ?? msgData.message?.user ?? (msgData as Twitch.RestrictedLowTrustUserMessage).sender ?? null;
+}
+
+function hydrateLowTrustUserFromMessage(msgData: Twitch.AnyMessage, authorID: string): void {
+	const monitored = msgData.message?.monitored;
+	if (!monitored) return;
+
+	const existing = messages.lowTrustUsers[authorID];
+	messages.lowTrustUsers[authorID] = {
+		id: existing?.id ?? `${ctx.id}:${authorID}`,
+		types: monitored.types ?? existing?.types ?? [],
+		banEvasion: {
+			likelihood:
+				(monitored.ban_evasion_evaluation as LowTrustUserProperties["banEvasion"]["likelihood"]) ??
+				existing?.banEvasion.likelihood ??
+				"POSSIBLE",
+			evaluatedAt: existing?.banEvasion.evaluatedAt ?? null,
+		},
+		sharedBanChannels: existing?.sharedBanChannels ?? [],
+		treatment: {
+			type:
+				monitored.treatment === "NO_TREATMENT"
+					? "NONE"
+					: (monitored.treatment as LowTrustUserProperties["treatment"]["type"]),
+			updatedAt: existing?.treatment.updatedAt ?? null,
+			updatedBy: monitored.updated_by?.userLogin ?? existing?.treatment.updatedBy ?? null,
+		},
+		channelSharedBansUpdatedAt: existing?.channelSharedBansUpdatedAt ?? null,
+	};
 }
 
 const pendingWorkerMessages = new Map<
@@ -347,7 +390,7 @@ function onChatMessage(msg: ChatMessage, msgData: Twitch.AnyMessage, shouldRende
 	}
 
 	// define message author
-	const authorData = msgData.user ?? msgData.message?.user ?? null;
+	const authorData = getTwitchAuthorData(msgData);
 	if (authorData) {
 		const knownChatter = messages.chatters[authorData.userID];
 		const color = authorData.color
@@ -389,6 +432,7 @@ function onChatMessage(msg: ChatMessage, msgData: Twitch.AnyMessage, shouldRende
 
 		msg.badges = msgData.badges ?? msgData.message?.badges ?? {};
 		msg.badgeData = msgData.badgeDynamicData ?? {};
+		hydrateLowTrustUserFromMessage(msgData, authorData.userID);
 	}
 
 	if (IsDisplayableMessage(msgData)) {
@@ -962,7 +1006,7 @@ watchDebounced(
 			missingIds.delete(nodeId);
 			if (unhandledNodeMap.has(nodeId) || !unhandled.has(nodeId)) continue;
 
-			const m = new ChatMessage(nodeId + "-unhandled");
+			const m = new ChatMessage(nodeId);
 			m.wrappedNode = node;
 			messages.add(m);
 
@@ -1083,8 +1127,19 @@ defineExpose({
 <style scoped lang="scss">
 .seventv-chat-list {
 	padding: 1rem 0;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
 	font-size: var(--seventv-chat-font-size, inherit);
 	line-height: 1.5em;
+
+	.seventv-message {
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
+	}
 
 	.seventv-message.dehydrated {
 		overflow: hidden;

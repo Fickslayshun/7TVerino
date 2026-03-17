@@ -8,8 +8,8 @@ if (-not (Test-Path $distDir)) {
 	throw "dist directory not found. Run 'yarn build:prod' first."
 }
 
-$stageDirName = "7tvfixed"
-$packageName = "7tvfixed"
+$stageDirName = "7tverino"
+$packageName = "7tverino"
 $stageDir = Join-Path $releaseDir $stageDirName
 $zipPath = Join-Path $releaseDir "$packageName.zip"
 

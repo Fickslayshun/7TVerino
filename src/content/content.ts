@@ -79,6 +79,89 @@ const bc = new BroadcastChannel(APP_BROADCAST_CHANNEL);
 						});
 					},
 				);
+				break;
+			}
+			case "seventv-twitch-redeem-custom-reward": {
+				chrome.runtime.sendMessage(
+					{
+						type: "twitch-redeem-custom-reward",
+						data: ev.data.data,
+					},
+					(
+						response:
+							| {
+									requestID: string;
+									ok: boolean;
+									error?: string;
+							  }
+							| undefined,
+					) => {
+						const requestID = ev.data.data?.requestID;
+
+						if (chrome.runtime.lastError) {
+							bc.postMessage({
+								type: "seventv-twitch-redeem-custom-reward-result",
+								data: {
+									requestID,
+									ok: false,
+									error: chrome.runtime.lastError.message,
+								},
+							});
+							return;
+						}
+
+						bc.postMessage({
+							type: "seventv-twitch-redeem-custom-reward-result",
+							data: response ?? {
+								requestID,
+								ok: false,
+								error: "No response from extension background.",
+							},
+						});
+					},
+				);
+				break;
+			}
+			case "seventv-twitch-select-chat-badge": {
+				chrome.runtime.sendMessage(
+					{
+						type: "twitch-select-chat-badge",
+						data: ev.data.data,
+					},
+					(
+						response:
+							| {
+									requestID: string;
+									ok: boolean;
+									error?: string;
+							  }
+							| undefined,
+					) => {
+						const requestID = ev.data.data?.requestID;
+
+						if (chrome.runtime.lastError) {
+							bc.postMessage({
+								type: "seventv-twitch-select-chat-badge-result",
+								data: {
+									requestID,
+									ok: false,
+									error: chrome.runtime.lastError.message,
+								},
+							});
+							return;
+						}
+
+						bc.postMessage({
+							type: "seventv-twitch-select-chat-badge-result",
+							data: response ?? {
+								requestID,
+								ok: false,
+								error: "No response from extension background.",
+							},
+						});
+					},
+				);
+				break;
 			}
 		}
 	});

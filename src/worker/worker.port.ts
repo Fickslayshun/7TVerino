@@ -146,6 +146,11 @@ export class WorkerPort {
 				this.driver.emit("tverino_badge_sets_fetch", payload, this);
 				break;
 			}
+			case "TVERINO_CUSTOM_REWARD_REDEEM": {
+				const payload = data as TypedWorkerMessage<"TVERINO_CUSTOM_REWARD_REDEEM">;
+				this.driver.emit("tverino_custom_reward_redeem", payload, this);
+				break;
+			}
 			case "CLOSE":
 				for (const channelID of this.tverinoChannelIDs) {
 					this.driver.emit("tverino_chat_unsubscribe", { channelID }, this);

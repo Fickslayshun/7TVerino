@@ -87,7 +87,7 @@ import { reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useStore } from "@/store/main";
 import { debounceFn } from "@/common/Async";
-import { useChannelContext } from "@/composable/channel/useChannelContext";
+import { resolveChannelContext } from "@/composable/channel/useChannelContext";
 import { useChatEmotes } from "@/composable/chat/useChatEmotes";
 import { useActor } from "@/composable/useActor";
 import { useCosmetics } from "@/composable/useCosmetics";
@@ -105,6 +105,7 @@ import StoreSubscribeButton from "../store/StoreSubscribeButton.vue";
 const props = defineProps<{
 	provider: EmoteMenuTabName;
 	selected?: boolean;
+	channelId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -116,7 +117,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const ctx = useEmoteMenuContext();
-const channelContext = useChannelContext(ctx.channelID);
+const channelContext = resolveChannelContext(props.channelId ?? ctx.channelID);
 const emotes = useChatEmotes(channelContext);
 const updater = useUpdater();
 const selectedSet = ref("");

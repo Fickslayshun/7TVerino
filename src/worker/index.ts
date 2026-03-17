@@ -34,10 +34,13 @@ export enum workerMessageType {
 	TVERINO_CHAT_UNSUBSCRIBE,
 	TVERINO_CHAT_SEND,
 	TVERINO_CHAT_MESSAGE,
+	TVERINO_CHAT_ROOMSTATE,
 	TVERINO_CHAT_SEND_RESULT,
 	TVERINO_CHAT_STATUS,
 	TVERINO_BADGE_SETS_FETCH,
 	TVERINO_BADGE_SETS_RESULT,
+	TVERINO_CUSTOM_REWARD_REDEEM,
+	TVERINO_CUSTOM_REWARD_REDEEM_RESULT,
 }
 
 export type WorkerMessageType = keyof typeof workerMessageType;
@@ -128,10 +131,15 @@ export type TypedWorkerMessage<T extends WorkerMessageType> = {
 		channelLogin: string;
 		message: string;
 		nonce: string;
+		reply?: NonNullable<Twitch.DisplayableMessage["reply"]>;
 	};
 	TVERINO_CHAT_MESSAGE: {
 		channelID: string;
 		message: Twitch.AnyMessage;
+	};
+	TVERINO_CHAT_ROOMSTATE: {
+		channelID: string;
+		roomState: SevenTV.TVerinoRoomState;
 	};
 	TVERINO_CHAT_SEND_RESULT: {
 		channelID: string;
@@ -139,6 +147,9 @@ export type TypedWorkerMessage<T extends WorkerMessageType> = {
 		ok: boolean;
 		error?: string;
 		messageID?: string;
+		badges?: Record<string, string>;
+		badgeDynamicData?: Record<string, string>;
+		user?: Twitch.ChatUser;
 	};
 	TVERINO_CHAT_STATUS: SevenTV.TVerinoTransportStatus;
 	TVERINO_BADGE_SETS_FETCH: {
@@ -151,6 +162,24 @@ export type TypedWorkerMessage<T extends WorkerMessageType> = {
 		requestID: string;
 		channelID: string;
 		badgeSets: Twitch.BadgeSets | null;
+		error?: string;
+	};
+	TVERINO_CUSTOM_REWARD_REDEEM: {
+		requestID: string;
+		channelID: string;
+		rewardID: string;
+		cost: number;
+		title: string;
+		prompt?: string | null;
+		clientID: string;
+		token: string;
+		transactionID?: string;
+	};
+	TVERINO_CUSTOM_REWARD_REDEEM_RESULT: {
+		requestID: string;
+		channelID: string;
+		rewardID: string;
+		ok: boolean;
 		error?: string;
 	};
 }[T];

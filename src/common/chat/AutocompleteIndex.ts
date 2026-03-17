@@ -25,6 +25,7 @@ export class ChatAutocompleteIndex {
 
 	rebuild(input: {
 		personalEmotes: Record<string, SevenTV.ActiveEmote>;
+		activeEmotes: Record<string, SevenTV.ActiveEmote>;
 		providers: Record<SevenTV.Provider, Record<string, SevenTV.EmoteSet>>;
 		emojis: Record<string, SevenTV.ActiveEmote>;
 		chatters: Record<string, ChatUser>;
@@ -42,7 +43,7 @@ export class ChatAutocompleteIndex {
 			this.pushToken(this.personal, this.personalBuckets, {
 				token,
 				priority: 1,
-				item: emote,
+				item: input.activeEmotes[token] ?? emote,
 			});
 		}
 
@@ -54,7 +55,7 @@ export class ChatAutocompleteIndex {
 					this.pushToken(this.provider, this.providerBuckets, {
 						token: emote.name,
 						priority: 2,
-						item: emote,
+						item: input.activeEmotes[emote.name] ?? emote,
 					});
 				}
 			}

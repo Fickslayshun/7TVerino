@@ -1,11 +1,11 @@
-import { onUnmounted, ref, watch, type Ref } from "vue";
-import { useTimeoutFn, until } from "@vueuse/core";
+import { type Ref, onUnmounted, ref, watch } from "vue";
+import { until, useTimeoutFn } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { useStore } from "@/store/main";
 import { normalizeUsername } from "@/common/Color";
 import { log } from "@/common/Logger";
 import { convertCheerEmote, convertTwitchEmote } from "@/common/Transform";
-import { ChatMessage, ChatMessageModeration, ChatUser } from "@/common/chat/ChatMessage";
+import { ChatMessage, ChatMessageModeration, ChatUser, LowTrustUserProperties } from "@/common/chat/ChatMessage";
 import type { NormalizedChatMessage } from "@/common/chat/PerformanceProcessor";
 import { IsChatMessage, IsDisplayableMessage, IsModerationMessage } from "@/common/type-predicates/Messages";
 import type { ChannelContext } from "@/composable/channel/useChannelContext";
@@ -18,6 +18,10 @@ import { useCosmetics } from "@/composable/useCosmetics";
 import { useConfig } from "@/composable/useSettings";
 import { WorkletEvent, useWorker } from "@/composable/useWorker";
 import { MessagePartType, MessageType, ModerationType } from "@/site/twitch.tv";
+import {
+	applyTVerinoSendResultToMessage,
+	consumePendingTVerinoSendResult,
+} from "@/site/twitch.tv/modules/chat/tverinoPendingMessage";
 import BasicSystemMessage from "@/app/chat/msg/BasicSystemMessage.vue";
 
 const CHAT_WORKER_TIMEOUT_MS = 40;
@@ -37,6 +41,10 @@ for (const [path, component] of Object.entries(types)) {
 
 function getMessageComponent(type: MessageType) {
 	return typeMap[type] ?? null;
+}
+
+function getTwitchAuthorData(msgData: Twitch.AnyMessage): Twitch.ChatUser | null {
+	return msgData.user ?? msgData.message?.user ?? (msgData as Twitch.RestrictedLowTrustUserMessage).sender ?? null;
 }
 
 interface ChatMessageProcessorOptions {
@@ -63,6 +71,34 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 	const showRestrictedLowTrustUser = useConfig<boolean>("highlights.basic.restricted_low_trust_user");
 	const showMonitoredLowTrustUser = useConfig<boolean>("highlights.basic.monitored_low_trust_user");
 	const showModifiers = useConfig<boolean>("chat.show_emote_modifiers");
+
+	function hydrateLowTrustUserFromMessage(msgData: Twitch.AnyMessage, authorID: string): void {
+		const monitored = msgData.message?.monitored;
+		if (!monitored) return;
+
+		const existing = messages.lowTrustUsers[authorID];
+		messages.lowTrustUsers[authorID] = {
+			id: existing?.id ?? `${ctx.id}:${authorID}`,
+			types: monitored.types ?? existing?.types ?? [],
+			banEvasion: {
+				likelihood:
+					(monitored.ban_evasion_evaluation as LowTrustUserProperties["banEvasion"]["likelihood"]) ??
+					existing?.banEvasion.likelihood ??
+					"POSSIBLE",
+				evaluatedAt: existing?.banEvasion.evaluatedAt ?? null,
+			},
+			sharedBanChannels: existing?.sharedBanChannels ?? [],
+			treatment: {
+				type:
+					monitored.treatment === "NO_TREATMENT"
+						? "NONE"
+						: (monitored.treatment as LowTrustUserProperties["treatment"]["type"]),
+				updatedAt: existing?.treatment.updatedAt ?? null,
+				updatedBy: monitored.updated_by?.userLogin ?? existing?.treatment.updatedBy ?? null,
+			},
+			channelSharedBansUpdatedAt: existing?.channelSharedBansUpdatedAt ?? null,
+		};
+	}
 
 	const pendingWorkerMessages = new Map<
 		string,
@@ -102,6 +138,23 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 	});
 
 	const onMessage = (msgData: Twitch.AnyMessage): boolean => {
+		const authorData = getTwitchAuthorData(msgData);
+		const messageBody = IsDisplayableMessage(msgData)
+			? (msgData.messageBody ?? msgData.message?.messageBody ?? "").replace("\n", " ")
+			: "";
+		const messageTimestamp = IsChatMessage(msgData) ? msgData.timestamp : msgData.message?.timestamp ?? 0;
+		const replacementTarget =
+			typeof msgData.nonce === "string"
+				? messages.find((message) => message.nonce === msgData.nonce && message.id !== msgData.id)
+				: identity.value && authorData && authorData.userID === identity.value.id && messageBody
+				  ? messages.find(
+							(message) =>
+								message.nonce === message.id &&
+								message.author?.id === identity.value?.id &&
+								message.body === messageBody &&
+								Math.abs(message.timestamp - messageTimestamp) <= 15000,
+				    )
+				  : null;
 		const msg = new ChatMessage(msgData.id);
 		msg.channelID = ctx.id;
 
@@ -119,11 +172,11 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 			case MessageType.BITS_BADGE_TIER_MESSAGE:
 			case MessageType.VIEWER_MILESTONE:
 			case MessageType.CONNECTED:
-				onChatMessage(msg, msgData);
+				onChatMessage(msg, msgData, true, replacementTarget);
 				break;
 			case MessageType.CHANNEL_POINTS_REWARD:
 				if (!(msgData as Twitch.ChannelPointsRewardMessage).animationID) {
-					onChatMessage(msg, msgData);
+					onChatMessage(msg, msgData, true, replacementTarget);
 				} else {
 					return false;
 				}
@@ -145,7 +198,13 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 		return true;
 	};
 
-	function onChatMessage(msg: ChatMessage, msgData: Twitch.AnyMessage, shouldRender = true) {
+	function onChatMessage(
+		msg: ChatMessage,
+		msgData: Twitch.AnyMessage,
+		shouldRender = true,
+		replacementTarget: ChatMessage | null = null,
+	) {
+		const isSyntheticPendingMessage = typeof msgData.nonce === "string" && msgData.id === msgData.nonce;
 		const component = getMessageComponent(msgData.type);
 		if (component) {
 			msg.setComponent(component, { msgData });
@@ -174,7 +233,7 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 			msg.setSourceData(msgData.sourceData);
 		}
 
-		const authorData = msgData.user ?? msgData.message?.user ?? null;
+		const authorData = getTwitchAuthorData(msgData);
 		if (authorData) {
 			const knownChatter = messages.chatters[authorData.userID];
 			const color = authorData.color
@@ -193,7 +252,8 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 			msg.setAuthor(
 				knownChatter ?? {
 					id: authorData.userID,
-					username: authorData.userLogin ?? (authorData.userDisplayName ?? authorData.displayName)?.toLowerCase(),
+					username:
+						authorData.userLogin ?? (authorData.userDisplayName ?? authorData.displayName)?.toLowerCase(),
 					displayName: authorData.userDisplayName ?? authorData.displayName ?? authorData.userLogin,
 					intl: authorData.isIntl,
 					color,
@@ -215,7 +275,11 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 
 			msg.badges = msgData.badges ?? msgData.message?.badges ?? {};
 			msg.badgeData = msgData.badgeDynamicData ?? {};
+			hydrateLowTrustUserFromMessage(msgData, authorData.userID);
 		}
+
+		const pendingSendResult =
+			typeof msgData.nonce === "string" ? consumePendingTVerinoSendResult(msgData.nonce) : null;
 
 		if (IsDisplayableMessage(msgData)) {
 			msg.body = (msgData.messageBody ?? msgData.message?.messageBody ?? "").replace("\n", " ");
@@ -353,10 +417,25 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 				msg.deletable = true;
 			}
 
+			if (pendingSendResult) {
+				applyTVerinoSendResultToMessage(msg, pendingSendResult);
+				if (pendingSendResult.messageID) {
+					msg.setID(pendingSendResult.messageID);
+				}
+				msg.setDeliveryState(pendingSendResult.ok ? "SENT" : "BOUNCED");
+			}
+
+			if (replacementTarget) {
+				if (!messages.replace(replacementTarget, msg) && shouldRender) {
+					messages.add(msg);
+				}
+				return;
+			}
+
 			if (shouldRender) messages.add(msg);
 		};
 
-		if (performance.workerPathEnabled.value && IsDisplayableMessage(msgData)) {
+		if (performance.workerPathEnabled.value && IsDisplayableMessage(msgData) && !isSyntheticPendingMessage) {
 			void preprocessMessage(msg, sourceRoomID).then(finalize);
 			return;
 		}
@@ -379,7 +458,9 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 			pendingWorkerMessages.set(requestID, {
 				resolve: (result) => {
 					if (result && result.id !== msg.id) {
-						performance.disableWorkerPath("worker preprocessing response did not match the requested message");
+						performance.disableWorkerPath(
+							"worker preprocessing response did not match the requested message",
+						);
 						resolve(null);
 						return;
 					}

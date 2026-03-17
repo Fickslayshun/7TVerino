@@ -30,8 +30,8 @@ user_card:
     stop_highlight: Stop highlighting of this user
     no_messages: "{user} has not chatted here"
     no_warnings: "{user} has not been warned before"
-    no_timeouts: "{user} hasn't been timed out before"
-    no_bans: "{user} hasn't been banned before"
+    no_timeouts: '{user} hasn''t been timed out before'
+    no_bans: '{user} hasn''t been banned before'
     no_comments: "No mod comments have been written for {user}"
     timeout_button: "{duration} timeout"
     ban_button: Ban
@@ -46,9 +46,9 @@ emote_menu:
     native: Open Native Menu
     favorite_set: Favorite Emotes
     most_used_set: Most Used Emotes
-    favorite_emotes_hint_1: You don't have any Favorite Emotes yet
+    favorite_emotes_hint_1: 'You don''t have any Favorite Emotes yet'
     favorite_emotes_hint_2: Hold {HOTKEY} and click an emote to add it to your favorites
-    personal_emotes_promo_1: You don't have Personal Emotes yet
+    personal_emotes_promo_1: 'You don''t have Personal Emotes yet'
     personal_emotes_promo_2: Use custom emotes anywhere on {PLATFORM} with a 7TV Subscription
     sets:
         Channel Emotes: Channel Emotes
@@ -76,30 +76,26 @@ onboarding:
     start_subtitle: |
         Thank you for downloading 7TV.
         Let us take you on a quick tour of the extension to customize your experience.
-    start_subtitle_upgraded: Welcome to version 3.0.0! 7TV has just gotten a big upgrade. Check out what's new...
-    start_skip_note: (...or you can skip this altogether if you're already a pro)
-    start_skip_note_upgraded: (sorry, we hope that didn't disturb whatever you were doing)
+    start_subtitle_upgraded: 'Welcome to version 3.0.0! 7TV has just gotten a big upgrade. Check out what''s new...'
+    start_skip_note: '(...or you can skip this altogether if you''re already a pro)'
+    start_skip_note_upgraded: '(sorry, we hope that didn''t disturb whatever you were doing)'
     start_skip_note_upgraded_quirky: but this update is so good
 
     # Onboarding - Platforms
     # This page lets the user select which platforms they want to enable 7TV on
     platforms_title: Platform Selection
-    platforms_subtitle: |
-        Select the platforms onto which you'd like to enable 7TV.
-        We'll configure the extension's permissions for you.
+    platforms_subtitle: 'Select the platforms onto which you''d like to enable 7TV. We''ll configure the extension''s permissions for you.'
     platforms_mutable_note: |
         After confirming, we may ask you for additional permissions. You can change this later at any time.
 
     # Onboarding - Config
     # This page lets the user set up initial settings
     config_title: Customize Your Experience
-    config_subtitle: |
-        We'll ask you a few questions and recommend you some settings to get you started. You can change these
-        later at any time.
+    config_subtitle: 'We''ll ask you a few questions and recommend you some settings to get you started. You can change these later at any time.'
     config_new_chat_advisory: 7TV introduces a completely new, high-performance chat experience.
     config_emphasize-bad-compat: This may prevent modifications by other extensions from working.
     config_bear_with_us1: We are working on improving compatibility.
-    config_bear_with_us2: Let us know what we're missing.
+    config_bear_with_us2: 'Let us know what we''re missing.'
     config_answer_button_yes: Yes
     config_answer_button_no: No
     config_action_button: Configure
@@ -128,7 +124,7 @@ onboarding:
         While completely optional, subscriptions are what lets us keep this service running
         and continue improving your viewing experience. Check out the benefits and consider subscribing!
     promo_nametag_paints: Nametag Paints
-    promo_nametag_paints_tooltip: Don't let the streamer miss your message, paints add extra glitter on your username in chat!
+    promo_nametag_paints_tooltip: 'Don''t let the streamer miss your message, paints add extra glitter on your username in chat!'
     promo_nametag_paints_caveat: Paints are timed releases and the specific paint on this photo may not be currently available
     promo_personal_emotes: Personal Emotes
     promo_personal_emotes_tooltip: Get customizable emotes that you can use globally, across any channel!
@@ -142,8 +138,8 @@ onboarding:
     # Onboarding - End
     # The last page of the onboarding process, featuring some call to actions
     # for following social media and leaving a review on the extension store
-    end_title: You're all set!
-    end_subtitle: We hope you'll enjoy the Extension
+    end_title: 'You''re all set!'
+    end_subtitle: 'We hope you''ll enjoy the Extension'
     end_social_media1: Follow us on X
     end_social_media2: Stay up to date on x.com
     end_review1: Give us a review
@@ -163,7 +159,7 @@ site:
         connect_button_channel: Connect {CHANNEL}
         connect_button_site: Connect 7TV...
         connect_button_site_tooltip: Use this button to get signed into 7tv.app with your Kick account ({ACTOR})
-        connect_popup_idle: Are you sure you'd like to link your current kick.com account ({ACTOR}) with 7TV?
+        connect_popup_idle: 'Are you sure you''d like to link your current kick.com account ({ACTOR}) with 7TV?'
         connect_popup_connecting: Please wait...
         connect_popup_done: Your channel has been successfully connected to 7TV! Use the 7tv.app website to start adding emotes
 

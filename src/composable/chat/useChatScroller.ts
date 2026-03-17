@@ -17,6 +17,7 @@ interface ChatScroller {
 	visible: boolean;
 	paused: boolean; // whether or not scrolling is paused
 	pauseBuffer: ChatMessage[]; // twitch chat message buffe when scrolling is paused
+	pauseBufferCap: number | null;
 
 	scrollClear: () => void;
 
@@ -40,6 +41,7 @@ export function useChatScroller(ctx: ChannelContext, initWith?: ChatScrollerInit
 			visible: true,
 			paused: false, // whether or not scrolling is paused
 			pauseBuffer: [] as ChatMessage[], // twitch chat message buffe when scrolling is paused
+			pauseBufferCap: null,
 
 			scrollClear: () => {
 				return;
@@ -125,6 +127,13 @@ export function useChatScroller(ctx: ChannelContext, initWith?: ChatScrollerInit
 		data.paused = true;
 	}
 
+	function setPauseBufferCap(cap: number | null): void {
+		data.pauseBufferCap = cap;
+		if (cap !== null && data.pauseBuffer.length > cap) {
+			data.pauseBuffer.splice(0, data.pauseBuffer.length - cap);
+		}
+	}
+
 	/**
 	 * Unpauses the scrolling of the chat
 	 */
@@ -173,7 +182,19 @@ export function useChatScroller(ctx: ChannelContext, initWith?: ChatScrollerInit
 	}
 
 	function onWheel(e: WheelEvent) {
-		if (e.deltaY < 0) data.userInput++;
+		if (e.deltaY >= 0) return;
+
+		data.userInput++;
+
+		if (data.paused || !container.value) return;
+
+		const maxScrollTop = container.value.scrollHeight - container.value.clientHeight;
+		if (maxScrollTop <= LIVE_SCROLL_TOLERANCE_PX) return;
+
+		// Pause as soon as the user starts scrolling upward so high-volume chat
+		// can't schedule a competing snap-to-bottom before the scroll event lands.
+		data.live = false;
+		pause();
 	}
 
 	return reactive({
@@ -181,11 +202,13 @@ export function useChatScroller(ctx: ChannelContext, initWith?: ChatScrollerInit
 		paused: toRef(data, "paused"),
 		live: toRef(data, "live"),
 		pauseBuffer: toRef(data, "pauseBuffer"),
+		pauseBufferCap: toRef(data, "pauseBufferCap"),
 		container,
 		bounds,
 
 		scrollToLive,
 		pause,
+		setPauseBufferCap,
 		unpause,
 		onScroll,
 		onWheel,

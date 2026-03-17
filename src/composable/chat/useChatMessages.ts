@@ -107,6 +107,48 @@ export function useChatMessages(ctx: ChannelContext) {
 	}
 
 	/**
+	 * Syncs chatter records and indexes a message under its author
+	 */
+	function indexMessageAuthor(message: ChatMessage): void {
+		if (!message.author) return;
+
+		message.author.lastMsgId = message.sym;
+
+		const knownAuthor = data.chatters[message.author.id];
+		if (knownAuthor) {
+			knownAuthor.username = message.author.username;
+			knownAuthor.displayName = message.author.displayName;
+			knownAuthor.color = message.author.color;
+			knownAuthor.intl = message.author.intl;
+			message.author = knownAuthor;
+		} else {
+			data.chatters[message.author.id] = message.author;
+		}
+
+		if (message.author.username) {
+			data.chattersByUsername[message.author.username] = message.author;
+			if (!data.displayedByUser[message.author.username]) data.displayedByUser[message.author.username] = {};
+			data.displayedByUser[message.author.username][message.id] = message;
+		}
+	}
+
+	function unindexMessageAuthor(message: ChatMessage): void {
+		if (!message.author?.username) return;
+
+		const userMessages = data.displayedByUser[message.author.username];
+		if (!userMessages) return;
+
+		delete userMessages[message.id];
+		if (Object.keys(userMessages).length > 0) return;
+
+		delete data.displayedByUser[message.author.username];
+		delete data.chattersByUsername[message.author.username];
+		if (message.author.id) {
+			delete data.chatters[message.author.id];
+		}
+	}
+
+	/**
 	 * Add a message to the chat
 	 *
 	 * It will be first added to a buffer, queued for rendering
@@ -120,36 +162,14 @@ export function useChatMessages(ctx: ChannelContext) {
 		if (scroller.paused) {
 			// if scrolling is paused, buffer the message
 			scroller.pauseBuffer.push(message);
-			if (scroller.pauseBuffer.length > effectiveLineLimit) scroller.pauseBuffer.shift();
+			const pauseBufferCap = scroller.pauseBufferCap ?? effectiveLineLimit;
+			if (scroller.pauseBuffer.length > pauseBufferCap) scroller.pauseBuffer.shift();
 
 			return;
 		}
 
 		// check user/message author data
-		if (message.author) {
-			message.author.lastMsgId = message.sym;
-
-			const knownAuthor = data.chatters[message.author.id];
-			if (!knownAuthor) {
-				data.chatters[message.author.id] = message.author;
-			} else {
-				knownAuthor.username = message.author.username;
-				knownAuthor.displayName = message.author.displayName;
-				knownAuthor.color = message.author.color;
-				knownAuthor.intl = message.author.intl;
-			}
-
-			// set as active chatter
-			if (!data.chatters[message.author.id] || !data.chattersByUsername[message.author.username]) {
-				data.chatters[message.author.id] = message.author;
-				if (message.author.username) data.chattersByUsername[message.author.username] = message.author;
-			}
-
-			if (!data.displayedByUser[message.author.username]) data.displayedByUser[message.author.username] = {}; // create user message map
-
-			// add message to user message map
-			data.displayedByUser[message.author.username][message.id] = message;
-		}
+		indexMessageAuthor(message);
 
 		// push message to buffer, and trigger flush
 		data.buffer.push(message);
@@ -168,7 +188,34 @@ export function useChatMessages(ctx: ChannelContext) {
 	function clear() {
 		data.displayed.length = 0;
 		data.buffer.length = 0;
+		data.moderated.length = 0;
+		data.displayedByUser = {};
+		data.lowTrustUsers = {};
 		data.chatters = {};
+		data.chattersByUsername = {};
+		scroller.pauseBuffer.length = 0;
+	}
+
+	/**
+	 * Replace an existing message entry while preserving ordering in all live buffers
+	 */
+	function replace(prevMessage: ChatMessage, nextMessage: ChatMessage): boolean {
+		let replaced = false;
+
+		const lists = [data.displayed, data.buffer, scroller.pauseBuffer];
+		for (const list of lists) {
+			const index = list.indexOf(prevMessage);
+			if (index < 0) continue;
+
+			list.splice(index, 1, nextMessage);
+			replaced = true;
+		}
+
+		if (!replaced) return false;
+
+		unindexMessageAuthor(prevMessage);
+		indexMessageAuthor(nextMessage);
+		return true;
 	}
 
 	/**
@@ -207,13 +254,7 @@ export function useChatMessages(ctx: ChannelContext) {
 							const removed = data.displayed.splice(0, data.displayed.length - effectiveLineLimit);
 							for (const msg of removed) {
 								if (!msg.author) continue;
-
-								// retrieve the user's message map
-								const umap = data.displayedByUser[msg.author.username];
-								if (!umap) continue;
-
-								// delete this specific message from the user's message map
-								delete umap[msg.id];
+								unindexMessageAuthor(msg);
 							}
 
 							flushTimeout = undefined;
@@ -248,18 +289,16 @@ export function useChatMessages(ctx: ChannelContext) {
 	 * @returns null if no message matches the predicate
 	 */
 	function find<A extends boolean = false>(predicate: (msg: ChatMessage) => boolean, all?: A) {
-		const len = data.displayed.length + scroller.pauseBuffer.length;
-		const bufferStart = data.displayed.length;
-
 		const result = [] as ChatMessage[];
+		for (const list of [data.buffer, scroller.pauseBuffer, data.displayed]) {
+			for (let i = list.length - 1; i >= 0; i--) {
+				const msg = list[i];
+				if (!msg) continue;
 
-		for (let i = len - 1; i >= 0; i--) {
-			const msg = i >= bufferStart ? scroller.pauseBuffer[i - bufferStart] : data.displayed[i];
-			if (!msg) continue;
-
-			if (predicate(msg)) {
-				result.push(msg);
-				if (!all) break;
+				if (predicate(msg)) {
+					result.push(msg);
+					if (!all) return result[0] as A extends true ? ChatMessage[] : ChatMessage | null;
+				}
 			}
 		}
 
@@ -326,6 +365,7 @@ export function useChatMessages(ctx: ChannelContext) {
 		messagesByUser,
 		awaitMessage,
 		add,
+		replace,
 		clear,
 		reload,
 	});

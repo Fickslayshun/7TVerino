@@ -40,7 +40,8 @@ import Emote from "@/app/chat/Emote.vue";
 import UiFloating from "@/ui/UiFloating.vue";
 
 const props = defineProps<{
-	instance: HookedInstance<Twitch.ChatAutocompleteComponent>;
+	instance?: HookedInstance<Twitch.ChatAutocompleteComponent>;
+	anchor?: Element | null;
 	currentMatch: TabToken;
 	backwardsMatches: TabToken[];
 	forwardsMatches: TabToken[];
@@ -63,7 +64,7 @@ watchEffect(() => {
 	forward.value = new Set(props.forwardsMatches);
 	cur.value = new Set([props.currentMatch]);
 
-	const n = props.instance.domNodes.root;
+	const n = props.anchor ?? props.instance?.domNodes.root;
 	if (!n) return;
 
 	anchor.value = n;

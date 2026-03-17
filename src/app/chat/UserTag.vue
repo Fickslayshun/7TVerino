@@ -41,6 +41,7 @@
 		<!-- Message Author -->
 		<span
 			v-tooltip="shouldPaint ? `Paint: ${paint!.data.name}` : ''"
+			ref="usernameRef"
 			class="seventv-chat-user-username"
 			@click="handleClick($event)"
 			@mousedown="handleMiddleMouseDown"
@@ -54,12 +55,15 @@
 		</span>
 	</div>
 
-	<template v-if="showUserCard && userCardPosition">
+	<template v-if="showUserCard">
 		<Teleport to="#seventv-float-context">
 			<UiDraggable
 				class="seventv-user-card-float"
 				:handle="cardHandle"
-				:initial-position="userCardPosition"
+				:follow-anchor="true"
+				:initial-anchor="userCardAnchor"
+				:initial-position="userCardPosition ?? undefined"
+				initial-placement="top-end"
 				:initial-middleware="userCardInitialMiddleware"
 				:once="true"
 			>
@@ -89,7 +93,7 @@ import { useConfig } from "@/composable/useSettings";
 import Badge, { TwitchChatBadgeWithData } from "./Badge.vue";
 import UiCopiedMessageToast from "@/ui/UiCopiedMessageToast.vue";
 import UiDraggable from "@/ui/UiDraggable.vue";
-import { autoPlacement, shift } from "@floating-ui/dom";
+import { type ReferenceElement, flip, offset, shift } from "@floating-ui/dom";
 
 const props = withDefaults(
 	defineProps<{
@@ -133,6 +137,8 @@ const twitchBadgeSets = toRef(properties, "twitchBadgeSets");
 const mentionStyle = useConfig<MentionStyle>("chat.colored_mentions");
 
 const tagRef = ref<HTMLDivElement>();
+const usernameRef = ref<HTMLSpanElement>();
+const userCardAnchor = ref<ReferenceElement>();
 const showUserCard = ref(false);
 const cardHandle = ref<HTMLDivElement>();
 const copyToastOpen = ref(false);
@@ -145,7 +151,11 @@ const copyToastContainer = useFloatScreen(tagRef, {
 	placement: "top",
 	middleware: [shift({ padding: 8 })],
 });
-const userCardInitialMiddleware = [shift({ mainAxis: true, crossAxis: true }), autoPlacement()];
+const userCardInitialMiddleware = [
+	offset(4),
+	flip({ fallbackPlacements: ["bottom-end"] }),
+	shift({ mainAxis: true, crossAxis: true, padding: 8 }),
+];
 
 const shouldPaint = computed(() => {
 	if (!shouldRenderPaint.value) return false;
@@ -188,8 +198,15 @@ function handleClick(ev: MouseEvent) {
 	}
 
 	if (!showUserCard.value) {
-		const rect = tagRef.value?.getBoundingClientRect();
-		userCardPosition.value = rect ? [rect.left, rect.bottom] : [ev.clientX, ev.clientY];
+		userCardAnchor.value = createUserCardAnchor();
+
+		const lineRect =
+			tagRef.value?.closest(".seventv-chat-message-background")?.getBoundingClientRect() ??
+			tagRef.value?.closest(".seventv-chat-message-container")?.getBoundingClientRect() ??
+			tagRef.value?.getBoundingClientRect();
+		const usernameRect = usernameRef.value?.getBoundingClientRect() ?? tagRef.value?.getBoundingClientRect();
+		userCardPosition.value =
+			lineRect && usernameRect ? [lineRect.right, usernameRect.bottom] : [ev.clientX, ev.clientY];
 		if (props.msgId) openUserCards.open(props.msgId, userCardKey.value);
 		showUserCard.value = true;
 		return;
@@ -215,6 +232,7 @@ async function copyUsername(): Promise<void> {
 
 function closeUserCard(): void {
 	showUserCard.value = false;
+	userCardAnchor.value = undefined;
 	userCardPosition.value = null;
 	if (props.msgId) openUserCards.close(props.msgId);
 }
@@ -295,6 +313,37 @@ onUnmounted(() => {
 		openUserCards.close(props.msgId);
 	}
 });
+
+function createUserCardAnchor(): ReferenceElement | undefined {
+	const lineAnchor =
+		tagRef.value?.closest(".seventv-chat-message-background") ??
+		tagRef.value?.closest(".seventv-chat-message-container") ??
+		tagRef.value;
+	const usernameAnchor = usernameRef.value ?? tagRef.value;
+
+	if (!lineAnchor || !usernameAnchor) return undefined;
+
+	return {
+		contextElement: lineAnchor,
+		getBoundingClientRect() {
+			const lineRect = lineAnchor.getBoundingClientRect();
+			const usernameRect = usernameAnchor.getBoundingClientRect();
+			const x = lineRect.right;
+			const y = usernameRect.bottom;
+
+			return {
+				width: 0,
+				height: 0,
+				x,
+				y,
+				top: y,
+				left: x,
+				right: x,
+				bottom: y,
+			};
+		},
+	};
+}
 
 function resolveTwitchBadges(
 	badges: Record<string, string> | undefined,

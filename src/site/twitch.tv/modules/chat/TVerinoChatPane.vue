@@ -69,16 +69,14 @@ const props = withDefaults(
 
 provide(CHANNEL_CTX, props.ctx);
 
-const fallbackList = new HookedInstance(
-	{
-		props: {
-			channelID: props.ctx.id,
-			children: [],
-			currentUserLogin: "",
-			messageHandlerAPI: null,
-		},
-	} as unknown as Twitch.ChatListComponent,
-);
+const fallbackList = new HookedInstance({
+	props: {
+		channelID: props.ctx.id,
+		children: [],
+		currentUserLogin: "",
+		messageHandlerAPI: null,
+	},
+} as unknown as Twitch.ChatListComponent);
 
 watch(
 	() => props.ctx.id,
@@ -130,15 +128,25 @@ watch(
 	display: flex;
 	flex-direction: column;
 	flex: 1 1 auto;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
 	min-height: 0;
+	box-sizing: border-box;
+	overflow-x: hidden;
 }
 
 .seventv-chat-scroller {
 	z-index: 1;
 	height: 100%;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
 	min-height: 0;
+	box-sizing: border-box;
 
 	:deep(.scrollable-contents) {
+		overflow-x: hidden;
 		scrollbar-width: none;
 
 		&::-webkit-scrollbar {
@@ -154,6 +162,10 @@ watch(
 }
 
 .seventv-message-container {
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
 	line-height: 1.5em;
 }
 

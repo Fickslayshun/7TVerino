@@ -10,7 +10,7 @@
 					:title="`${emote.name} - Click to send. Ctrl+Click or Alt+Click to insert.`"
 					@click="handleEmoteClick($event, emote)"
 				>
-					<Emote :emote="emote" :clickable="false" :scale="0.74" />
+					<Emote :emote="emote" :clickable="false" :show-tooltip="false" :scale="0.74" />
 				</button>
 			</template>
 			<div v-else class="seventv-recent-emote-bar-empty">

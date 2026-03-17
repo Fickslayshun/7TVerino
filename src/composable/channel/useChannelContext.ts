@@ -24,6 +24,17 @@ export class ChannelContext implements CurrentChannel {
 		roles: new Set<ChannelRole>(),
 	};
 
+	roomState: SevenTV.TVerinoRoomState = {
+		loaded: false,
+		emoteOnly: false,
+		subscribersOnly: false,
+		followersOnlyEnabled: false,
+		followersOnlyDuration: -1,
+		slowModeEnabled: false,
+		slowModeDuration: 0,
+		uniqueChatEnabled: false,
+	};
+
 	get base(): CurrentChannel {
 		return {
 			id: this.id,
@@ -89,6 +100,34 @@ export class ChannelContext implements CurrentChannel {
 }
 
 const m = new Map<string, ChannelContext>();
+const initialized = new WeakSet<ChannelContext>();
+
+function initializeChannelContext(ctx: ChannelContext): ChannelContext {
+	if (initialized.has(ctx)) return ctx;
+
+	const store = useStore();
+	watch(
+		() => store.platform,
+		() => {
+			ctx.platform = store.platform;
+		},
+		{ immediate: true },
+	);
+
+	initialized.add(ctx);
+	return ctx;
+}
+
+export function resolveChannelContext(channelID?: string): ChannelContext {
+	const ctx = initializeChannelContext((channelID ? m.get(channelID) : null) ?? reactive<ChannelContext>(new ChannelContext()));
+
+	if (channelID) {
+		if (ctx.id !== channelID) ctx.setCurrentChannel({ id: channelID, username: "", displayName: "", active: true });
+		m.set(channelID, ctx);
+	}
+
+	return ctx;
+}
 
 /**
  * @param channelID the ID of the current channel to use for the context
@@ -97,20 +136,8 @@ const m = new Map<string, ChannelContext>();
 export function useChannelContext(channelID?: string, track = false): ChannelContext {
 	let ctx = inject<ChannelContext | null>(CHANNEL_CTX, null);
 	if (!ctx) {
-		ctx = (channelID ? m.get(channelID) : null) ?? reactive<ChannelContext>(new ChannelContext());
-		if (channelID) ctx.setCurrentChannel({ id: channelID ?? "", username: "", displayName: "", active: true });
-
-		const store = useStore();
-		watch(
-			() => store.platform,
-			() => {
-				ctx!.platform = store.platform;
-			},
-			{ immediate: true },
-		);
-
+		ctx = resolveChannelContext(channelID);
 		provide(CHANNEL_CTX, ctx);
-		if (channelID) m.set(channelID, ctx);
 	}
 
 	if (track) {
