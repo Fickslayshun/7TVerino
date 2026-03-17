@@ -1,8 +1,8 @@
 # 7TVerino
 
-Unofficial 7TV extension fork focused on performance, QoL, and a faster Twitch experience.
+Unofficial 7TV extension fork blending 7TV and a Chatterino-style Twitch workflow with a focus on performance, QoL, and a faster native experience.
 
-7TVerino merges 7TV and a Chatterino-style multi-channel chat workflow into one native Twitch extension. The goal is to keep Twitch feeling native while adding tabbed chat, faster tools, and practical quality-of-life upgrades without leaving the site.
+7TVerino merges 7TV and a Chatterino-style multi-channel chat workflow into one native Twitch extension focused on performance and quality-of-life improvements. The goal is to keep Twitch feeling native while adding tabbed chat, faster tools, and practical upgrades without leaving the site.
 
 This repository is separate from the official 7TV extension. It keeps the source here and ships installable builds through GitHub Releases.
 
@@ -13,8 +13,8 @@ This repository is separate from the official 7TV extension. It keeps the source
 ## What Is 7TVerino?
 
 - Native Twitch extension experience with a unified chat, input, and settings flow
-- Chatterino-style multi-channel chat tabs built directly into Twitch
-- 7TV-based performance and QoL improvements without needing a separate desktop client
+- Chatterino-style multi-channel chat tabs built directly into Twitch, with performance and QoL as a core focus
+- 7TV-based performance and quality-of-life improvements without needing a separate desktop client
 
 ## Download
 
