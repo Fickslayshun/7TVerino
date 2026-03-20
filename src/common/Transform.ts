@@ -248,6 +248,21 @@ export function convertBttvEmote(data: BTTV.Emote): SevenTV.Emote {
 
 export function convertFFZEmoteSet(data: FFZ.RoomResponse, channelID: string): SevenTV.EmoteSet {
 	const sets = Object.values(data.sets);
+	const emotes = [] as SevenTV.ActiveEmote[];
+
+	for (const set of sets) {
+		for (const emote of set.emoticons) {
+			const data = convertFFZEmote(emote);
+			data.host.srcset = imageHostToSrcset(data.host, "FFZ");
+			emotes.push({
+				id: emote.id.toString(),
+				name: emote.name,
+				flags: 0,
+				provider: "FFZ",
+				data,
+			});
+		}
+	}
 
 	return {
 		id: "FFZ#" + channelID,
@@ -263,24 +278,7 @@ export function convertFFZEmoteSet(data: FFZ.RoomResponse, channelID: string): S
 			display_name: channelID,
 			avatar_url: "",
 		},
-		emotes: sets.length
-			? sets.reduce((con, set) => {
-					return [
-						...con,
-						...(set.emoticons.map((e) => {
-							const data = convertFFZEmote(e);
-							data.host.srcset = imageHostToSrcset(data.host, "FFZ");
-							return {
-								id: e.id.toString(),
-								name: e.name,
-								flags: 0,
-								provider: "FFZ",
-								data: data,
-							};
-						}) as SevenTV.ActiveEmote[]),
-					];
-			  }, [] as SevenTV.ActiveEmote[])
-			: [],
+		emotes,
 	};
 }
 

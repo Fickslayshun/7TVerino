@@ -139,9 +139,14 @@
 			:redeeming-reward-id="redeemingRewardID"
 			:icon-image="channelPointsIcon?.image2x || channelPointsIcon?.image1x || ''"
 			:icon-background-color="channelPointsIcon?.backgroundColor || ''"
+			:show-native-menu="channelPointsNativeMenuAvailable"
+			:show-review-requests="showModViewButton"
+			:review-requests-count="channelPointsReviewRequestsCount"
 			@close="closeChannelPointsPanel"
 			@clickout="onChannelPointsPanelClickout"
 			@redeem="onChannelPointsRedeem"
+			@review-requests="onChannelPointsReviewRequests"
+			@report-rewards="onChannelPointsReportRewards"
 		/>
 
 		<TVerinoGlobalBadgePanel
@@ -251,7 +256,7 @@
 				<TwitchChatSettingsIcon />
 			</button>
 			<button class="seventv-tverino-chat-button" type="button" :disabled="!canSend" @click="submit()">
-				Chat
+				{{ submitLabel }}
 			</button>
 		</div>
 
@@ -358,6 +363,14 @@ const props = defineProps<{
 	ctx: ChannelContext;
 	mode: "native" | "remote";
 	inputStatus: SevenTV.TVerinoTransportStatus;
+	nativeTrayState?: {
+		active: boolean;
+		sendHandlerType: string;
+		placeholder: string;
+		sendButtonLabel: string;
+		allowEmpty: boolean;
+		disableChat: boolean;
+	};
 	nativeSendMessage?: (message: string, reply?: NonNullable<Twitch.DisplayableMessage["reply"]>) => boolean;
 }>();
 
@@ -408,6 +421,8 @@ const badgeTriggerIndex = ref(0);
 const channelPointsPanelOpen = ref(false);
 const badgePanelOpen = ref(false);
 const settingsPanelOpen = ref(false);
+const channelPointsNativeMenuAvailable = ref(false);
+const channelPointsReviewRequestsCount = ref<number | null>(null);
 const nativeClaimVisible = ref(false);
 const nativeClaimPending = ref(false);
 const nativeClaimClaimed = ref(false);
@@ -422,6 +437,7 @@ let nativeClaimPointsGainTimeout = 0;
 let nativeClaimRequestToken = 0;
 let nativeClaimStartBalance: number | null = null;
 let nativeClaimAutoTriggered = false;
+let nativeChannelPointsMenuObserver: MutationObserver | null = null;
 let syncingMessageHistoryValue = false;
 const {
 	channelPointsBalance,
@@ -493,14 +509,39 @@ const actorDisplayName = computed(() => {
 	if ("displayName" in currentIdentity && currentIdentity.displayName) return currentIdentity.displayName;
 	return currentIdentity.username;
 });
+const hasActiveNativeTray = computed(() => !!props.nativeTrayState?.active);
+const shouldRouteThroughNativeInput = computed(
+	() => props.mode === "native" || (hasActiveNativeTray.value && typeof props.nativeSendMessage === "function"),
+);
 const placeholder = computed(() => {
 	if (props.inputStatus.state !== "connected") return "Chat unavailable";
+	if (hasActiveNativeTray.value && props.nativeTrayState?.placeholder) {
+		return props.nativeTrayState.placeholder;
+	}
 
 	const channelLabel = (props.ctx.displayName || props.ctx.username).trim();
 	return channelLabel ? `Send a message in ${channelLabel}` : "Send a message";
 });
 
-const canSend = computed(() => props.inputStatus.state === "connected" && value.value.trim().length > 0);
+const submitLabel = computed(() => {
+	if (hasActiveNativeTray.value && props.nativeTrayState?.sendButtonLabel) {
+		return props.nativeTrayState.sendButtonLabel;
+	}
+
+	return "Chat";
+});
+const canSubmitEmptyNativeTray = computed(
+	() => hasActiveNativeTray.value && !!props.nativeTrayState?.allowEmpty,
+);
+const canSend = computed(() => {
+	if (props.inputStatus.state !== "connected") return false;
+	if (hasActiveNativeTray.value && props.nativeTrayState) {
+		if (props.nativeTrayState.disableChat) return false;
+		if (canSubmitEmptyNativeTray.value) return true;
+	}
+
+	return value.value.trim().length > 0;
+});
 const showModViewButton = computed(() => {
 	const roles = props.ctx.actor.roles;
 	return !!props.ctx.username && (roles.has("MODERATOR") || roles.has("BROADCASTER"));
@@ -603,6 +644,179 @@ function clearNativeClaimPointsGainTimeout(): void {
 	if (!nativeClaimPointsGainTimeout) return;
 	window.clearTimeout(nativeClaimPointsGainTimeout);
 	nativeClaimPointsGainTimeout = 0;
+}
+
+function stopNativeChannelPointsMenuObserver(): void {
+	nativeChannelPointsMenuObserver?.disconnect();
+	nativeChannelPointsMenuObserver = null;
+}
+
+function normalizeNativeMenuText(value: string | null | undefined): string {
+	return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function isVisibleElement(el: Element | null | undefined): el is HTMLElement {
+	if (!(el instanceof HTMLElement)) return false;
+
+	const style = window.getComputedStyle(el);
+	return style.display !== "none" && style.visibility !== "hidden" && el.getClientRects().length > 0;
+}
+
+function findNativeChannelPointsMoreOptionsButtons(): HTMLButtonElement[] {
+	const scopes = [
+		document.querySelector(".community-points-summary"),
+		document.querySelector(".community-points-summary")?.parentElement,
+		document.body,
+	].filter((scope): scope is Element => !!scope);
+	const seen = new Set<HTMLButtonElement>();
+	const buttons: HTMLButtonElement[] = [];
+
+	for (const scope of scopes) {
+		for (const button of Array.from(scope.querySelectorAll<HTMLButtonElement>('button[aria-label="More options"]'))) {
+			if (seen.has(button)) continue;
+			seen.add(button);
+			if (button.closest(".seventv-tverino-points-panel")) continue;
+			if (!isVisibleElement(button)) continue;
+			buttons.push(button);
+		}
+	}
+
+	return buttons;
+}
+
+function findNativeChannelPointsPopupRoot(): HTMLElement | null {
+	const poppers = Array.from(document.querySelectorAll<HTMLElement>('[data-popper-placement="bottom-end"]'));
+	for (const popper of poppers) {
+		if (popper.closest(".seventv-tverino-points-panel")) continue;
+		if (!isVisibleElement(popper)) continue;
+		if (
+			popper.querySelector('[data-test-selector="requests-count"]') ||
+			popper.querySelector('[data-a-target="report-button-report-button"]')
+		) {
+			return popper;
+		}
+	}
+
+	for (const balloon of Array.from(document.querySelectorAll<HTMLElement>(".tw-balloon"))) {
+		if (balloon.closest(".seventv-tverino-points-panel")) continue;
+		if (!isVisibleElement(balloon)) continue;
+		if (
+			balloon.querySelector('[data-test-selector="requests-count"]') ||
+			balloon.querySelector('[data-a-target="report-button-report-button"]')
+		) {
+			return balloon;
+		}
+	}
+
+	return null;
+}
+
+function findNativeChannelPointsReviewRequestsButton(): HTMLButtonElement | null {
+	const popupRoot = findNativeChannelPointsPopupRoot();
+	if (!popupRoot) return null;
+
+	const countNode = popupRoot.querySelector<HTMLElement>('[data-test-selector="requests-count"]');
+	const countButton = countNode?.closest("button");
+	if (countButton instanceof HTMLButtonElement) return countButton;
+
+	for (const button of Array.from(popupRoot.querySelectorAll<HTMLButtonElement>("button"))) {
+		if (normalizeNativeMenuText(button.textContent).startsWith("review requests")) return button;
+	}
+
+	return null;
+}
+
+function findNativeChannelPointsReportRewardsButton(): HTMLButtonElement | null {
+	const popupRoot = findNativeChannelPointsPopupRoot();
+	if (!popupRoot) return null;
+
+	const reportButton = popupRoot.querySelector<HTMLButtonElement>('[data-a-target="report-button-report-button"]');
+	if (reportButton) return reportButton;
+
+	for (const button of Array.from(popupRoot.querySelectorAll<HTMLButtonElement>("button"))) {
+		if (normalizeNativeMenuText(button.textContent) === "report rewards") return button;
+	}
+
+	return null;
+}
+
+function findNativeChannelPointsRequestCount(): number | null {
+	const popupRoot = findNativeChannelPointsPopupRoot();
+	if (!popupRoot) return null;
+
+	const countNode = popupRoot.querySelector<HTMLElement>('[data-test-selector="requests-count"]');
+	if (!countNode) return null;
+
+	const match = countNode.textContent?.match(/\d[\d,]*/);
+	if (!match) return null;
+
+	const parsed = Number.parseInt(match[0].replaceAll(",", ""), 10);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
+function syncNativeChannelPointsMenuState(): void {
+	const moreButtons = findNativeChannelPointsMoreOptionsButtons();
+	const reviewButton = findNativeChannelPointsReviewRequestsButton();
+	const reportButton = findNativeChannelPointsReportRewardsButton();
+
+	channelPointsNativeMenuAvailable.value = moreButtons.length > 0 || !!reviewButton || !!reportButton;
+	channelPointsReviewRequestsCount.value = findNativeChannelPointsRequestCount();
+}
+
+function startNativeChannelPointsMenuObserver(): void {
+	stopNativeChannelPointsMenuObserver();
+	syncNativeChannelPointsMenuState();
+
+	nativeChannelPointsMenuObserver = new MutationObserver(() => {
+		syncNativeChannelPointsMenuState();
+	});
+	nativeChannelPointsMenuObserver.observe(document.body, {
+		subtree: true,
+		childList: true,
+		characterData: true,
+	});
+}
+
+async function waitForNextFrame(): Promise<void> {
+	await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
+async function waitForNativeChannelPointsMenuAction(
+	findActionButton: () => HTMLButtonElement | null,
+	maxAttempts = 8,
+): Promise<HTMLButtonElement | null> {
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		const actionButton = findActionButton();
+		if (actionButton) return actionButton;
+
+		await waitForNextFrame();
+		await new Promise<void>((resolve) => window.setTimeout(resolve, 40));
+	}
+
+	return null;
+}
+
+async function openNativeChannelPointsMenuAction(action: "review" | "report"): Promise<void> {
+	const findActionButton =
+		action === "review" ? findNativeChannelPointsReviewRequestsButton : findNativeChannelPointsReportRewardsButton;
+	const directActionButton = await waitForNativeChannelPointsMenuAction(findActionButton, 1);
+	if (directActionButton) {
+		directActionButton.click();
+		closeChannelPointsPanel();
+		return;
+	}
+
+	for (const moreButton of findNativeChannelPointsMoreOptionsButtons()) {
+		moreButton.click();
+		const openedActionButton = await waitForNativeChannelPointsMenuAction(findActionButton);
+		if (!openedActionButton) continue;
+
+		openedActionButton.click();
+		closeChannelPointsPanel();
+		return;
+	}
+
+	syncNativeChannelPointsMenuState();
 }
 
 function resetNativeClaimState(): void {
@@ -1249,8 +1463,9 @@ function createNonce(): string {
 }
 
 function submit(explicitText?: string): void {
-	const message = (explicitText ?? value.value).trim();
-	if (!message || !identity.value) return;
+	const rawMessage = explicitText ?? value.value;
+	const message = rawMessage.trim();
+	if ((!message && !canSubmitEmptyNativeTray.value) || !identity.value) return;
 	const replyMetadata = activeReply.value
 		? {
 				parentDeleted: activeReply.value.deleted,
@@ -1269,11 +1484,13 @@ function submit(explicitText?: string): void {
 		  }
 		: undefined;
 
-	if (props.mode === "native") {
+	if (shouldRouteThroughNativeInput.value) {
 		const didSend = props.nativeSendMessage?.(message, replyMetadata) ?? false;
 		if (!didSend) return;
 
-		pushMessageHistory(message);
+		if (message) {
+			pushMessageHistory(message);
+		}
 		closeNativeReplyTray();
 		value.value = "";
 		suggestionIndex.value = 0;
@@ -1431,6 +1648,9 @@ function closeSettingsPanel(): void {
 
 function closeChannelPointsPanel(): void {
 	channelPointsPanelOpen.value = false;
+	stopNativeChannelPointsMenuObserver();
+	channelPointsNativeMenuAvailable.value = false;
+	channelPointsReviewRequestsCount.value = null;
 	clearRedeemedReward();
 }
 
@@ -1492,6 +1712,22 @@ function onChannelPointsRedeem(reward: import("./useTVerinoChannelPoints").TVeri
 	void redeemReward(reward);
 }
 
+function onChannelPointsReviewRequests(): void {
+	const channelLogin = props.ctx.username?.trim().toLowerCase();
+	if (!channelLogin) return;
+
+	window.open(
+		`https://www.twitch.tv/popout/${channelLogin}/reward-queue`,
+		"twitch-reward-queue",
+		"popup=yes,width=960,height=860,noopener,noreferrer",
+	);
+	closeChannelPointsPanel();
+}
+
+function onChannelPointsReportRewards(): void {
+	void openNativeChannelPointsMenuAction("report");
+}
+
 watch(
 	() => triggerBadges.value.map((badge) => badge.key).join("|"),
 	() => stopBadgeTriggerAnimation(),
@@ -1514,6 +1750,21 @@ watch(channelPointsBalance, (nextBalance) => {
 
 	triggerNativeClaimSuccess(nextBalance - nativeClaimStartBalance);
 });
+
+watch(
+	() => channelPointsPanelOpen.value,
+	(open) => {
+		if (open) {
+			startNativeChannelPointsMenuObserver();
+			return;
+		}
+
+		stopNativeChannelPointsMenuObserver();
+		channelPointsNativeMenuAvailable.value = false;
+		channelPointsReviewRequestsCount.value = null;
+	},
+	{ immediate: true },
+);
 
 watch(
 	[nativeClaimVisible, autoClaimChannelPoints, () => props.mode] as const,
@@ -1541,6 +1792,7 @@ onUnmounted(() => {
 	closeBadgePanel();
 	closeSettingsPanel();
 	resetNativeClaimState();
+	stopNativeChannelPointsMenuObserver();
 	emoteMenuCtx.open = false;
 	target.removeEventListener("tverino_chat_send_result", onSendResult);
 });

@@ -9,7 +9,7 @@
 
 			<!-- Personal Set Promotion -->
 			<template v-if="provider === '7TV' && !actor.sub">
-				<EmoteMenuSet :es="promotionPersonalSet" :ephemeral="true">
+				<EmoteMenuSet :es="promotionPersonalSet" :icon="getSetIcon(promotionPersonalSet)" :ephemeral="true">
 					<div class="seventv-promotion-personal-emotes">
 						<div>
 							<p v-t="'emote_menu.personal_emotes_promo_1'" />
@@ -45,6 +45,7 @@
 					v-if="es.emotes.length"
 					:ref="'es-' + es.id"
 					:es="es"
+					:icon="getSetIcon(es)"
 					@emote-clicked="(ae) => emit('emote-clicked', ae)"
 					@emotes-updated="(emotes) => updateVisibility(es, !!emotes.length)"
 				/>
@@ -66,8 +67,18 @@
 							>
 								<SingleEmoji :id="emojiGroupIcons[emojiCategories.indexOf(es.name)]" :alt="es.name" />
 							</div>
-							<img v-else-if="es.owner && es.owner.avatar_url" :src="es.owner.avatar_url" />
-							<Logo v-else class="logo" :provider="es.provider" />
+							<img
+								v-else-if="getSetIcon(es).kind === 'image'"
+								:key="`${es.id}:${getSetIcon(es).src}`"
+								:src="getSetIcon(es).src"
+								:alt="es.name"
+							/>
+							<Logo
+								v-else
+								class="logo"
+								:class="{ 'seventv-emote-menu-set-sidebar-icon-logo-accent': getSetIcon(es).tone === 'accent' }"
+								:provider="getSetIcon(es).provider"
+							/>
 						</div>
 					</div>
 				</template>
@@ -90,6 +101,7 @@ import { debounceFn } from "@/common/Async";
 import { type ChannelContext, resolveChannelContext } from "@/composable/channel/useChannelContext";
 import { useChatEmotes } from "@/composable/chat/useChatEmotes";
 import { useActor } from "@/composable/useActor";
+import { getModuleRef } from "@/composable/useModule";
 import { useCosmetics } from "@/composable/useCosmetics";
 import { useConfig } from "@/composable/useSettings";
 import useUpdater from "@/composable/useUpdater";
@@ -98,6 +110,7 @@ import GearsIcon from "@/assets/svg/icons/GearsIcon.vue";
 import Logo from "@/assets/svg/logos/Logo.vue";
 import type { EmoteMenuTabName } from "./EmoteMenu.vue";
 import { useEmoteMenuContext } from "./EmoteMenuContext";
+import { type EmoteSetIconDescriptor, getImageHostSource } from "./setIcon";
 import EmoteMenuSet from "./EmoteMenuSet.vue";
 import UiScrollable from "@/ui/UiScrollable.vue";
 import StoreSubscribeButton from "../store/StoreSubscribeButton.vue";
@@ -128,6 +141,7 @@ const sets = emotes.byProvider(props.provider as SevenTV.Provider) ?? reactive({
 const store = useStore();
 const cosmetics = useCosmetics(store.identity?.id ?? "");
 const actor = useActor();
+const avatarModule = getModuleRef("avatars");
 const visibleSets = reactive<Set<string>>(new Set());
 const sortedSets = ref([] as SevenTV.EmoteSet[]);
 const favorites = useConfig<Set<string>>("ui.emote_menu.favorites");
@@ -166,6 +180,7 @@ const emojiCategories = [
 const promotionPersonalSet: SevenTV.EmoteSet = {
 	id: "personal-ad",
 	name: "Personal Emotes",
+	provider: "7TV",
 	emotes: [],
 };
 
@@ -225,6 +240,64 @@ function sortFn(a: SevenTV.EmoteSet, b: SevenTV.EmoteSet) {
 		return emojiCategories.indexOf(a.name) - emojiCategories.indexOf(b.name);
 
 	return c1 == c2 ? a.name.localeCompare(b.name) : c1 > c2 ? 1 : -1;
+}
+
+function getAnimatedAvatarSource(username?: string): string {
+	const login = username?.trim().toLowerCase();
+	if (!login) return "";
+
+	const avatars = avatarModule.value?.instance?.avatars as Record<string, SevenTV.Cosmetic<"AVATAR">> | undefined;
+	if (!avatars) return "";
+
+	return getImageHostSource(avatars[login]?.data?.host);
+}
+
+function getActorAvatarSource(): string {
+	return getAnimatedAvatarSource(store.identity?.username) || actor.user?.avatar_url || "";
+}
+
+function getChannelAvatarSource(es: SevenTV.EmoteSet): string {
+	return (
+		getAnimatedAvatarSource(channelContext.username) ||
+		channelContext.user?.avatar_url ||
+		es.owner?.avatar_url ||
+		""
+	);
+}
+
+function getSetIcon(es: SevenTV.EmoteSet): EmoteSetIconDescriptor {
+	if (es.provider === "7TV") {
+		const isPersonalSet = es.id === "personal-ad" || es.scope === "PERSONAL" || ((es.flags ?? 0) & 4) !== 0;
+		if (isPersonalSet) {
+			const source = getActorAvatarSource();
+			if (source) return { kind: "image", src: source };
+		}
+
+		const isCurrentChannelSet =
+			es.id !== "global" &&
+			es.scope === "CHANNEL" &&
+			Object.prototype.hasOwnProperty.call(sets, es.id);
+		if (isCurrentChannelSet) {
+			const source = getChannelAvatarSource(es);
+			if (source) return { kind: "image", src: source };
+		}
+
+		if (es.scope === "GLOBAL" || es.id === "global") {
+			return { kind: "logo", provider: "7TV", tone: "default" };
+		}
+
+		return { kind: "logo", provider: "7TV", tone: "accent" };
+	}
+
+	if (es.owner?.avatar_url) {
+		return { kind: "image", src: es.owner.avatar_url };
+	}
+
+	return {
+		kind: "logo",
+		provider: es.provider ?? "7TV",
+		tone: "default",
+	};
 }
 
 function updateVisibility(es: SevenTV.EmoteSet, state: boolean): void {
@@ -378,9 +451,19 @@ watch(() => [ctx.filter, providerSetSignature.value, personalSetSignature.value]
 	cursor: pointer;
 }
 
+.seventv-emote-menu-set-sidebar-icon img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
 .logo {
 	width: 100%;
 	height: 100%;
+}
+
+.seventv-emote-menu-set-sidebar-icon-logo-accent {
+	color: var(--seventv-primary);
 }
 
 .seventv-emote-menu-emoji-group {

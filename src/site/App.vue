@@ -25,7 +25,7 @@ import { convertEmojis } from "@/composable/chat/useChatEmotes";
 import { useActor } from "@/composable/useActor";
 import { loadEmojiList } from "@/composable/useEmoji";
 import { useFrankerFaceZ } from "@/composable/useFrankerFaceZ";
-import { fillSettings, useConfig, useSettings } from "@/composable/useSettings";
+import { useConfig, useSettings, waitForSettingsBootstrap } from "@/composable/useSettings";
 import { useWorker } from "@/composable/useWorker";
 import Global from "./global/Global.vue";
 
@@ -55,18 +55,15 @@ const platformComponent = ref<Component>();
 db.ready().then(async () => {
 	log.info("IndexedDB ready");
 
-	db.settings
-		.toArray()
-		.then((s) => {
-			fillSettings(s);
-
-			wg.value--;
-			log.info("User Settings loaded");
-		})
-		.catch((err) => log.error("failed to fetch settings", err.message));
-
 	wg.value--;
 });
+
+waitForSettingsBootstrap()
+	.then(() => {
+		wg.value--;
+		log.info("User Settings loaded");
+	})
+	.catch((err) => log.error("failed to fetch settings", err.message));
 
 // Spawn SharedWorker
 const { init, target } = useWorker();
@@ -95,8 +92,21 @@ bc.addEventListener("message", (ev) => {
 	}
 });
 
-// Load emojis
-loadEmojiList().then(() => convertEmojis());
+// Emoji data is non-critical for first paint and 7TV chat readiness.
+function scheduleEmojiBootstrap(): void {
+	const load = () => {
+		void loadEmojiList().then(() => convertEmojis());
+	};
+
+	if (typeof window.requestIdleCallback === "function") {
+		window.requestIdleCallback(load, { timeout: 2000 });
+		return;
+	}
+
+	window.setTimeout(load, 0);
+}
+
+scheduleEmojiBootstrap();
 
 log.setContextName(`site/${domain}`);
 

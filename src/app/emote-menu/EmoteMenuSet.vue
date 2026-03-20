@@ -8,8 +8,13 @@
 	>
 		<div class="seventv-set-header">
 			<div class="seventv-set-header-icon">
-				<img v-if="es.owner && es.owner.avatar_url" :src="es.owner.avatar_url" />
-				<Logo v-else class="logo" :provider="es.provider" />
+				<img v-if="icon.kind === 'image'" :key="`${es.id}:${icon.src}`" :src="icon.src" :alt="es.name" />
+				<Logo
+					v-else
+					class="logo"
+					:class="{ 'seventv-set-header-logo-accent': icon.tone === 'accent' }"
+					:provider="icon.provider"
+				/>
 			</div>
 
 			<span class="seventv-set-name">{{ getLocaleName() }}</span>
@@ -56,6 +61,7 @@ import CloseIcon from "@/assets/svg/icons/CloseIcon.vue";
 import DropdownIcon from "@/assets/svg/icons/DropdownIcon.vue";
 import Logo from "@/assets/svg/logos/Logo.vue";
 import { useEmoteMenuContext } from "./EmoteMenuContext";
+import { type EmoteSetIconDescriptor } from "./setIcon";
 import Emote from "@/app/chat/Emote.vue";
 import {
 	ElementLifecycle,
@@ -64,6 +70,7 @@ import {
 
 const props = defineProps<{
 	es: SevenTV.EmoteSet;
+	icon: EmoteSetIconDescriptor;
 	ephemeral?: boolean;
 }>();
 
@@ -316,10 +323,20 @@ defineExpose({
 		border-radius: 0.5em;
 		overflow: clip;
 
+		img {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+		}
+
 		svg {
 			font-size: 2em;
 		}
 	}
+}
+
+.seventv-set-header-logo-accent {
+	color: var(--seventv-primary);
 }
 
 .seventv-emote-set-container {

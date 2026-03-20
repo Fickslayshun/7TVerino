@@ -95,8 +95,9 @@
 			:key="`${activeTab.kind}:${activeTab.id}`"
 			:ctx="activeTab.ctx"
 			:mode="activeTab.kind"
-			:input-status="activeTab.kind === 'native' ? nativeInputStatus : transportStatus"
-			:native-send-message="activeTab.kind === 'native' ? nativeSendMessage : undefined"
+			:input-status="activeTab.kind === 'native' || nativeTrayState.active ? nativeInputStatus : transportStatus"
+			:native-tray-state="nativeTrayState"
+			:native-send-message="nativeSendMessage"
 		/>
 	</Teleport>
 
@@ -167,6 +168,14 @@ const props = defineProps<{
 	headerContainer?: HTMLElement | null;
 	inputContainer?: HTMLElement | null;
 	nativeInputStatus: SevenTV.TVerinoTransportStatus;
+	nativeTrayState: {
+		active: boolean;
+		sendHandlerType: string;
+		placeholder: string;
+		sendButtonLabel: string;
+		allowEmpty: boolean;
+		disableChat: boolean;
+	};
 	nativeSendMessage: (message: string, reply?: NonNullable<Twitch.DisplayableMessage["reply"]>) => boolean;
 	setActiveTarget: (target: SevenTV.TVerinoActiveTarget) => void;
 	currentCtx: ChannelContext;

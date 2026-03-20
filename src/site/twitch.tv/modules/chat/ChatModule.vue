@@ -110,8 +110,20 @@ const isHookable = ref(false);
 const isHookableDbc = refDebounced(isHookable, 200);
 
 watch(
-	() => [chatController.instances, chatController.instances],
-	([a, b]) => (isHookable.value = a.length === b.length),
+	() => [
+		chatController.instances.length,
+		chatList.instances.length,
+		chatRoom.instances.length,
+		chatBuffer.instances.length,
+		chatEvents.instances.length,
+	],
+	([controllerCount, listCount, roomCount, bufferCount, eventsCount]) =>
+		(isHookable.value =
+			controllerCount > 0 &&
+			listCount > 0 &&
+			roomCount > 0 &&
+			bufferCount > 0 &&
+			eventsCount > 0),
 	{
 		immediate: true,
 	},

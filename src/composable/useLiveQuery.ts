@@ -18,12 +18,11 @@ export function useLiveQuery<T>(
 
 	const handleResult = (result: T | undefined) => {
 		if (!result) return;
-		if (typeof opt.count === "number" && opt.count-- <= 0) {
-			stop();
-		}
+		const shouldStop = typeof opt.count === "number" && --opt.count <= 0;
 
 		value.value = result;
 		onResult?.(result);
+		if (shouldStop) stop();
 	};
 
 	queryStop = liveQuery(queryFn).subscribe(handleResult).unsubscribe;

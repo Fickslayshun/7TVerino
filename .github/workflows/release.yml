@@ -29,15 +29,22 @@ jobs:
       - name: Build production extension
         run: yarn build:prod
 
-      - name: Package release zip
+      - name: Build Firefox release
+        run: yarn build:firefox:prod
+
+      - name: Package release zips
         shell: pwsh
-        run: ./script/package-release.ps1
+        run: |
+          ./script/package-release.ps1 -SourceDir dist -PackageName 7tverino -StageDirName 7tverino
+          ./script/package-release.ps1 -SourceDir dist/firefox -PackageName 7tverino-firefox -StageDirName 7tverino-firefox
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 7tverino
-          path: release-builds/7tverino.zip
+          name: 7tverino-release-builds
+          path: |
+            release-builds/7tverino.zip
+            release-builds/7tverino-firefox.zip
 
       - name: Prepare release notes
         shell: pwsh
@@ -71,7 +78,7 @@ jobs:
             gh release delete $stableTag --repo $repo --cleanup-tag -y
           }
 
-          gh release create $stableTag "release-builds/7tverino.zip" `
+          gh release create $stableTag "release-builds/7tverino.zip" "release-builds/7tverino-firefox.zip" `
             --repo $repo `
             --title "7tverino" `
             --notes-file "./release-builds/release-notes.txt" `

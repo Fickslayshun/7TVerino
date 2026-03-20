@@ -48,13 +48,26 @@
 					<p class="panel-section-title">Badge</p>
 					<p class="panel-description">Choose the Twitch badge you want to use for now.</p>
 
+					<div v-if="globalBadgeOptions.length" class="panel-search">
+						<input
+							v-model="searchQuery"
+							class="panel-search-input"
+							type="search"
+							placeholder="Search badges"
+							autofocus
+						/>
+						<div class="panel-search-icon">
+							<SearchIcon />
+						</div>
+					</div>
+
 					<p v-if="notice" class="panel-feedback" :class="{ error: noticeIsError }">
 						{{ notice }}
 					</p>
 
-					<div v-if="globalBadgeOptions.length" role="radiogroup" class="panel-badge-grid">
+					<div v-if="filteredBadgeOptions.length" role="radiogroup" class="panel-badge-grid">
 						<button
-							v-for="badge of globalBadgeOptions"
+							v-for="badge of filteredBadgeOptions"
 							:key="badge.key"
 							class="panel-badge-tile"
 							:class="{ selected: selectedBadgeKeys.includes(badge.key) }"
@@ -62,6 +75,7 @@
 							role="radio"
 							:aria-checked="selectedBadgeKeys.includes(badge.key) ? 'true' : 'false'"
 							:aria-label="badge.title"
+							:title="badge.title"
 							:disabled="isSelectingBadge"
 							@click="emit('select', badge)"
 						>
@@ -75,7 +89,7 @@
 					</div>
 
 					<p v-else class="panel-empty">
-						{{ emptyText }}
+						{{ emptyStateText }}
 					</p>
 				</section>
 			</div>
@@ -84,8 +98,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useStore } from "@/store/main";
+import SearchIcon from "@/assets/svg/icons/SearchIcon.vue";
 import type { TVerinoGlobalBadgeOption } from "./useTVerinoGlobalBadges";
 import UiFloating from "@/ui/UiFloating.vue";
 import { offset, shift } from "@floating-ui/dom";
@@ -110,6 +125,25 @@ const emit = defineEmits<{
 
 const middleware = [offset({ mainAxis: 10 }), shift({ padding: 8 })];
 const store = useStore();
+const searchQuery = ref("");
+
+const normalizedSearchQuery = computed(() => searchQuery.value.trim().toLowerCase());
+const filteredBadgeOptions = computed(() => {
+	if (!normalizedSearchQuery.value) return props.globalBadgeOptions;
+
+	return props.globalBadgeOptions.filter((badge) =>
+		[badge.title, badge.setID, badge.version].some((value) =>
+			value.trim().toLowerCase().includes(normalizedSearchQuery.value),
+		),
+	);
+});
+const emptyStateText = computed(() => {
+	if (props.globalBadgeOptions.length > 0 && normalizedSearchQuery.value) {
+		return `No badges match "${searchQuery.value.trim()}".`;
+	}
+
+	return props.emptyText;
+});
 
 const selectedBadge = computed(() => {
 	for (const badge of props.globalBadgeOptions) {
@@ -202,6 +236,53 @@ const previewName = computed(() => {
 	color: #adadb8;
 	font-size: 1.08rem;
 	line-height: 1.4;
+}
+
+.panel-search {
+	position: relative;
+	margin-top: 0.85rem;
+}
+
+.panel-search-icon {
+	position: absolute;
+	top: 0;
+	left: 0.75rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	color: rgb(255 255 255 / 0.44);
+	pointer-events: none;
+
+	svg {
+		width: 1.35rem;
+		height: 1.35rem;
+	}
+}
+
+.panel-search-input {
+	width: 100%;
+	height: 2.9rem;
+	padding: 0 0.9rem 0 2.55rem;
+	border: 0.1rem solid rgb(255 255 255 / 0.09);
+	border-radius: 0.55rem;
+	background: #101015;
+	color: #efeff1;
+	font-size: 1.08rem;
+	line-height: 1.2;
+	outline: none;
+	transition:
+		border-color 120ms ease,
+		background-color 120ms ease;
+
+	&::placeholder {
+		color: #8b8b97;
+	}
+
+	&:focus {
+		border-color: rgb(145 71 255 / 0.55);
+		background: #13131a;
+	}
 }
 
 .panel-preview-row {

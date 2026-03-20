@@ -72,8 +72,6 @@ export class ChatMessage<C extends ComponentFactory = ComponentFactory> {
 		} else {
 			this.id = id;
 		}
-
-		this.tokenizer = new Tokenizer(this);
 	}
 
 	get instance(): InstanceType<C> | null {

@@ -13,10 +13,72 @@
 					<p>{{ channelLabel }}</p>
 				</div>
 
-				<button class="panel-close" type="button" aria-label="Close rewards panel" @click="emit('close')">
-					&times;
-				</button>
+				<div class="panel-header-actions">
+					<button
+						ref="moreButtonRef"
+						class="panel-header-action panel-more"
+						type="button"
+						aria-label="More reward options"
+						:aria-expanded="moreMenuOpen ? 'true' : 'false'"
+						@click.stop="toggleMoreMenu"
+					>
+						<svg viewBox="0 0 24 24" aria-hidden="true">
+							<path
+								d="M10 5a2 2 0 1 1 4 0 2 2 0 0 1-4 0Zm0 7a2 2 0 1 1 4 0 2 2 0 0 1-4 0Zm2 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"
+							/>
+						</svg>
+					</button>
+
+					<button class="panel-header-action panel-close" type="button" aria-label="Close rewards panel" @click="emit('close')">
+						&times;
+					</button>
+				</div>
 			</div>
+
+			<UiFloating
+				v-if="moreMenuOpen && moreButtonRef"
+				:anchor="moreButtonRef"
+				emit-clickout
+				placement="bottom-end"
+				:middleware="menuMiddleware"
+				@clickout="onMoreMenuClickout"
+			>
+				<div class="panel-more-menu" @click.stop>
+					<button
+						v-if="showReviewRequests"
+						class="panel-more-menu-item"
+						type="button"
+						@click="onReviewRequestsClick"
+					>
+						<span class="panel-more-menu-copy">
+							<span class="panel-more-menu-title">Review Requests</span>
+							<span v-if="reviewRequestsCount !== null" class="panel-more-menu-count">
+								{{ formatPoints(reviewRequestsCount) }}
+							</span>
+						</span>
+						<span class="panel-more-menu-icon" aria-hidden="true">
+							<svg viewBox="0 0 24 24">
+								<path d="M14 2v2h4.586l-8.293 8.293 1.414 1.414L20 5.414V10h2V2h-8Z"></path>
+								<path d="M4 4h8v2H4v14h14v-8h2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"></path>
+							</svg>
+						</span>
+					</button>
+
+					<button class="panel-more-menu-item" type="button" @click="onReportRewardsClick">
+						<span class="panel-more-menu-icon leading" aria-hidden="true">
+							<svg viewBox="0 0 24 24">
+								<path d="M11 14a1 1 0 1 1 2 0 1 1 0 0 1-2 0Zm2-7h-2v4h2V7Z"></path>
+								<path
+									fill-rule="evenodd"
+									clip-rule="evenodd"
+									d="m12 22-3-3H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4l-3 3Zm-2.172-5L12 19.172 14.172 17H19V5H5v12h4.828Z"
+								></path>
+							</svg>
+						</span>
+						<span class="panel-more-menu-title">Report Rewards</span>
+					</button>
+				</div>
+			</UiFloating>
 
 			<section class="panel-section">
 				<header class="panel-section-title">Balance</header>
@@ -171,20 +233,28 @@ const props = defineProps<{
 	redeemingRewardId: string;
 	iconImage: string;
 	iconBackgroundColor: string;
+	showNativeMenu: boolean;
+	showReviewRequests: boolean;
+	reviewRequestsCount: number | null;
 }>();
 
 const emit = defineEmits<{
 	(event: "close"): void;
 	(event: "clickout", native: PointerEvent): void;
 	(event: "redeem", reward: TVerinoChannelPointsReward): void;
+	(event: "review-requests"): void;
+	(event: "report-rewards"): void;
 }>();
 
 const middleware = [offset({ mainAxis: 10 }), shift({ padding: 8 })];
+const menuMiddleware = [offset({ mainAxis: 8 }), shift({ padding: 8 })];
 const numberFormatter = new Intl.NumberFormat(undefined);
 const iconSource = computed(() => props.iconImage || "");
 const iconStyle = computed(() => ({
 	backgroundColor: "rgb(255 255 255 / 0.08)",
 }));
+const moreButtonRef = ref<HTMLButtonElement | null>(null);
+const moreMenuOpen = ref(false);
 const expandedRewardId = ref("");
 const animatedBalance = ref<number | null>(props.balance);
 const balanceAnimating = ref(false);
@@ -225,6 +295,15 @@ watch(
 	(nextRewardIds) => {
 		if (expandedRewardId.value && !nextRewardIds.includes(expandedRewardId.value)) {
 			expandedRewardId.value = "";
+		}
+	},
+);
+
+watch(
+	() => props.showNativeMenu,
+	(visible) => {
+		if (!visible) {
+			moreMenuOpen.value = false;
 		}
 	},
 );
@@ -281,6 +360,27 @@ onUnmounted(() => {
 
 function formatPoints(value: number): string {
 	return numberFormatter.format(value);
+}
+
+function toggleMoreMenu(): void {
+	moreMenuOpen.value = !moreMenuOpen.value;
+}
+
+function onMoreMenuClickout(ev: PointerEvent): void {
+	if (!(ev.target instanceof Node)) return;
+	if (moreButtonRef.value?.contains(ev.target)) return;
+
+	moreMenuOpen.value = false;
+}
+
+function onReviewRequestsClick(): void {
+	moreMenuOpen.value = false;
+	emit("review-requests");
+}
+
+function onReportRewardsClick(): void {
+	moreMenuOpen.value = false;
+	emit("report-rewards");
 }
 
 function animateBalance(from: number, to: number): void {
@@ -471,7 +571,13 @@ function showRewardConfirmCost(reward: TVerinoChannelPointsReward): boolean {
 	}
 }
 
-.panel-close {
+.panel-header-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.panel-header-action {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -479,17 +585,99 @@ function showRewardConfirmCost(reward: TVerinoChannelPointsReward): boolean {
 	width: 2.8rem;
 	height: 2.8rem;
 	border-radius: 999px;
-	color: rgb(255 255 255 / 0.72);
-	font-size: 2rem;
-	line-height: 1;
+	color: rgb(255 255 255 / 0.5);
 	transition:
 		background-color 120ms ease,
 		color 120ms ease;
 
 	&:hover,
 	&:focus-visible {
+		background: rgb(255 255 255 / 0.06);
+		color: rgb(255 255 255 / 0.82);
+	}
+}
+
+.panel-more {
+	color: rgb(255 255 255 / 0.46);
+
+	svg {
+		width: 1.8rem;
+		height: 1.8rem;
+		fill: currentcolor;
+	}
+}
+
+.panel-close {
+	font-size: 2rem;
+	line-height: 1;
+	transform: translateY(-2px);
+}
+
+.panel-more-menu {
+	width: 23rem;
+	padding: 0.5rem 0;
+	border: 0.1rem solid rgb(255 255 255 / 0.12);
+	border-radius: 0.8rem;
+	background: rgb(34 34 40 / 99%);
+	box-shadow: 0 1.4rem 3.2rem rgb(0 0 0 / 44%);
+	backdrop-filter: blur(10px);
+}
+
+.panel-more-menu-item {
+	display: flex;
+	align-items: center;
+	gap: 0.9rem;
+	width: 100%;
+	min-height: 4rem;
+	padding: 0.85rem 1.2rem;
+	border: 0;
+	background: transparent;
+	color: rgb(255 255 255 / 0.96);
+	text-align: left;
+	transition: background-color 120ms ease;
+
+	&:hover,
+	&:focus-visible {
 		background: rgb(255 255 255 / 0.08);
-		color: #fff;
+	}
+}
+
+.panel-more-menu-copy {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.8rem;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.panel-more-menu-title {
+	font-size: 1.25rem;
+	font-weight: 600;
+	line-height: 1.2;
+}
+
+.panel-more-menu-count {
+	color: rgb(255 255 255 / 0.72);
+	font-size: 1.2rem;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+}
+
+.panel-more-menu-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	color: rgb(255 255 255 / 0.84);
+
+	&.leading {
+		color: rgb(255 255 255 / 0.9);
+	}
+
+	svg {
+		width: 1.6rem;
+		height: 1.6rem;
+		fill: currentcolor;
 	}
 }
 

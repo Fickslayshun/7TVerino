@@ -26,14 +26,13 @@ interface ChatMessages {
 	chatters: Record<string, ChatUser>;
 	chattersByUsername: Record<string, ChatUser>;
 	overflowLimit: number;
+	flushTimeout?: number;
 
 	twitchHandlers: Set<(v: Twitch.AnyMessage) => void>;
 
 	// Functions
 	sendMessage: (msg: string) => void;
 }
-
-let flushTimeout: number | undefined;
 
 const batchTimeMs = useConfig<number>("chat.message_batch_duration");
 
@@ -61,6 +60,7 @@ export function useChatMessages(ctx: ChannelContext) {
 			chatters: {} as Record<string, ChatUser>,
 			chattersByUsername: {} as Record<string, ChatUser>,
 			overflowLimit: 0,
+			flushTimeout: undefined,
 
 			twitchHandlers: new Set<(v: Twitch.AnyMessage) => void>(),
 
@@ -186,6 +186,11 @@ export function useChatMessages(ctx: ChannelContext) {
 	 * Clears the chat messages
 	 */
 	function clear() {
+		if (data.flushTimeout) {
+			window.clearTimeout(data.flushTimeout);
+			data.flushTimeout = undefined;
+		}
+
 		data.displayed.length = 0;
 		data.buffer.length = 0;
 		data.moderated.length = 0;
@@ -223,12 +228,12 @@ export function useChatMessages(ctx: ChannelContext) {
 	 * and removing rendered messages that have gone out of the live buffer's bounds
 	 */
 	function flush(force?: boolean): void {
-		if (flushTimeout) return;
+		if (data.flushTimeout) return;
 
-		flushTimeout = window.setTimeout(
+		data.flushTimeout = window.setTimeout(
 			() => {
 				if (scroller.paused) {
-					flushTimeout = undefined;
+					data.flushTimeout = undefined;
 					return;
 				}
 
@@ -249,7 +254,7 @@ export function useChatMessages(ctx: ChannelContext) {
 				const effectiveLineLimit = getEffectiveLineLimit();
 				const overflowLimit = effectiveLineLimit * 1.25;
 				if (data.displayed.length > overflowLimit) {
-					flushTimeout = window.setTimeout(
+					data.flushTimeout = window.setTimeout(
 						() => {
 							const removed = data.displayed.splice(0, data.displayed.length - effectiveLineLimit);
 							for (const msg of removed) {
@@ -257,12 +262,12 @@ export function useChatMessages(ctx: ChannelContext) {
 								unindexMessageAuthor(msg);
 							}
 
-							flushTimeout = undefined;
+							data.flushTimeout = undefined;
 						},
 						getFlushDelay(force) / 1.5,
 					);
 				} else {
-					flushTimeout = undefined;
+					data.flushTimeout = undefined;
 				}
 			},
 			getFlushDelay(force) / 2,

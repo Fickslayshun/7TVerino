@@ -1,6 +1,6 @@
 <template>
 	<div class="seventv-settings-category" :in-view="ctx.category === category" :open="open">
-		<div tabindex="0" class="settings-category-header" @click="onCategoryClick()">
+		<div tabindex="0" class="settings-category-header" :style="headerStyle" @click="onCategoryClick()">
 			<div class="seventv-settings-category-icon">
 				<IconForSettings :name="category" />
 			</div>
@@ -32,6 +32,7 @@
 	</div>
 </template>
 <script setup lang="ts">
+import type { CSSProperties } from "vue";
 import { ref, watch } from "vue";
 import DropdownIcon from "@/assets/svg/icons/DropdownIcon.vue";
 import IconForSettings from "@/assets/svg/icons/IconForSettings.vue";
@@ -41,6 +42,7 @@ const props = defineProps<{
 	category: string;
 	subCategories: string[];
 	showSubCategories?: boolean;
+	headerStyle?: CSSProperties;
 }>();
 
 const emit = defineEmits<{

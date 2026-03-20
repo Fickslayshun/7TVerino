@@ -50,6 +50,7 @@ export class TVerinoChatTransport {
 	private reconnectTimer: number | null = null;
 	private auth: AuthState | null = null;
 	private subscriptions = new Map<string, SubscriptionEntry>();
+	private subscriptionsByLogin = new Map<string, SubscriptionEntry>();
 	private joinedChannels = new Set<string>();
 	private pendingSends: PendingSend[] = [];
 	private selfStates = new Map<string, SelfState>();
@@ -131,11 +132,16 @@ export class TVerinoChatTransport {
 			this.subscriptions.set(channel.id, entry);
 		}
 
+		if (entry.channel.username && entry.channel.username !== channel.username.toLowerCase()) {
+			this.subscriptionsByLogin.delete(entry.channel.username);
+		}
+
 		entry.channel = {
 			...entry.channel,
 			...channel,
 			username: channel.username.toLowerCase(),
 		};
+		this.subscriptionsByLogin.set(entry.channel.username, entry);
 		entry.ports.set(port.id, (entry.ports.get(port.id) ?? 0) + 1);
 		port.tverinoChannelIDs.set(channel.id, (port.tverinoChannelIDs.get(channel.id) ?? 0) + 1);
 
@@ -174,6 +180,7 @@ export class TVerinoChatTransport {
 		if (entry.ports.size > 0) return;
 
 		this.subscriptions.delete(channelID);
+		this.subscriptionsByLogin.delete(entry.channel.username);
 		this.selfStates.delete(channelID);
 		if (this.status.state === "connected" && entry.channel.username) {
 			this.partChannel(entry.channel.username);
@@ -652,14 +659,7 @@ export class TVerinoChatTransport {
 
 	private getSubscriptionByLogin(login: string): SubscriptionEntry | null {
 		if (!login) return null;
-
-		for (const entry of this.subscriptions.values()) {
-			if (entry.channel.username.toLowerCase() === login) {
-				return entry;
-			}
-		}
-
-		return null;
+		return this.subscriptionsByLogin.get(login.toLowerCase()) ?? null;
 	}
 
 	private setStatus(state: SevenTV.TVerinoTransportStatus["state"], reason: string): void {

@@ -48,7 +48,16 @@
 									:sub-categories="[]"
 									@open-category="() => ctx.switchView('home')"
 								/>
-								<template v-for="[n, subCategories] of Object.entries(ctx.mappedNodes)" :key="n.key">
+								<CategoryDropdown
+									v-if="ctx.mappedNodes['7TVerino']"
+									:header-style="{ color: 'var(--seventv-subscriber-color)' }"
+									category="7TVerino"
+									:sub-categories="Object.keys(ctx.mappedNodes['7TVerino'])"
+									:show-sub-categories="isExpanded"
+									@open-category="navigateToCategory('7TVerino')"
+									@open-subcategory="(s) => navigateToCategory('7TVerino', s)"
+								/>
+								<template v-for="[n, subCategories] of visibleCategoryEntries" :key="n">
 									<CategoryDropdown
 										:category="n"
 										:sub-categories="Object.keys(subCategories)"
@@ -63,7 +72,6 @@
 										actor.user.style?.paint_id &&
 										'paint tool subscriber color'.includes(filter.toLowerCase())
 									"
-									:style="{ color: 'var(--seventv-subscriber-color)' }"
 									category="Paint Tool"
 									:sub-categories="[]"
 									@open-category="() => ctx.switchView('paint')"
@@ -123,7 +131,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch, watchEffect } from "vue";
+import { computed, nextTick, onMounted, ref, watch, watchEffect } from "vue";
 import { useBreakpoints, useEventListener, useKeyModifier } from "@vueuse/core";
 import { useActor } from "@/composable/useActor";
 import { useSettings } from "@/composable/useSettings";
@@ -165,6 +173,10 @@ const categoryOrder = {
 	Compatibility: 5,
 	Backup: 6,
 };
+
+const visibleCategoryEntries = computed(() =>
+	Object.entries(ctx.mappedNodes).filter(([category]) => category !== "7TVerino"),
+);
 
 function navigateToCategory(name: string, scrollpoint?: string) {
 	switch (name) {

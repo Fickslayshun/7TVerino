@@ -1,6 +1,16 @@
 # Patch Notes
 
-18/03/2026
+20/03/2026 - Updates and refinements
+- Improved performance and readiness
+- Added search bar to identity badge menu
+- Added review reward requests and report to channel points menu
+- Fixed build for Firefox
+- Fixed a bug causing sub anniversary messages to not display
+- Fixed a bug causing profile pictures to replace emote set icons in the 7TV menu
+- Updated 7TVerino in settings to display properly
+- Sub badges now display the correct dates on hover
+
+18/03/2026 - Clean up and bug fixes
 - Improved saving of 7TVerino tabs and recent emotes
 - Fixed a bug causing 1hour chat history to not load
 - Fixed a bug causing the 7TV improved usercard to close when pressing a tab

@@ -6,6 +6,7 @@ export class Dexie7 extends Dexie {
 	VERSION = 1.7;
 
 	private _ready = false;
+	private _readyPromise: Promise<boolean> | null = null;
 
 	channels!: Table<ChannelMapping & WithTimestamp, SevenTV.ObjectID>;
 	emoteSets!: Table<SevenTV.EmoteSet & WithTimestamp, SevenTV.ObjectID>;
@@ -58,12 +59,22 @@ export class Dexie7 extends Dexie {
 	}
 
 	async ready(): Promise<boolean> {
-		return new Promise<boolean>((resolve, reject) => {
-			if (this._ready) return resolve(true);
+		if (this._ready || this.isOpen()) {
+			this._ready = true;
+			return true;
+		}
 
-			// Handle errors in opening the DB
-			const onError = async (err: Error) => {
-				reject(err);
+		if (this._readyPromise) {
+			return this._readyPromise;
+		}
+
+		this._readyPromise = this.open()
+			.then(() => {
+				this._ready = true;
+				return true;
+			})
+			.catch((err: Error) => {
+				this._readyPromise = null;
 
 				log.error("<IDB>", "Failed to open database", err.toString());
 
@@ -71,14 +82,11 @@ export class Dexie7 extends Dexie {
 				if ((err as DexieError).name === "VersionError") {
 					log.error("<IDB>", `!! Versioning issue detected. That's a big problem. (IndexedDB/${db.name}) !!`);
 				}
-			};
 
-			this.open()
-				.then(() => {
-					resolve(true);
-				})
-				.catch(onError);
-		});
+				throw err;
+			});
+
+		return this._readyPromise;
 	}
 
 	async withErrorFallback<T, T2>(promise: PromiseExtended<T>, ifError: () => PromiseExtended<T2>): Promise<T | T2> {

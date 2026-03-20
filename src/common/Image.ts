@@ -8,7 +8,8 @@ const layout = {
 	EMOJI: [],
 };
 
-const known = {} as Record<string, string>;
+const SRCSET_CACHE_LIMIT = 256;
+const known = new Map<string, string>();
 
 export function imageHostToSrcset(
 	host: SevenTV.ImageHost,
@@ -17,14 +18,20 @@ export function imageHostToSrcset(
 	maxSize?: number,
 	targetSize = 1,
 ): string {
-	if (targetSize === 1 && known[host.url]) return known[host.url];
-
 	const { preferredFormat } = useUserAgent();
+	const resolvedFormat = format ?? preferredFormat;
+	const cacheKey = [host.url, provider, resolvedFormat, maxSize ?? 0, targetSize].join("|");
+	const cached = known.get(cacheKey);
+	if (cached) {
+		known.delete(cacheKey);
+		known.set(cacheKey, cached);
+		return cached;
+	}
 
 	let sizes = host.files;
 
 	if (provider === "7TV") {
-		sizes = sizes.filter((f) => f.format === (format ?? preferredFormat));
+		sizes = sizes.filter((f) => f.format === resolvedFormat);
 	}
 
 	let srcset = "";
@@ -42,7 +49,14 @@ export function imageHostToSrcset(
 		srcset += `${host.url}/${size.name} ${multiplier}x`;
 	}
 
-	if (targetSize === 1) known[host.url] = srcset;
+	known.set(cacheKey, srcset);
+	if (known.size > SRCSET_CACHE_LIMIT) {
+		const oldestKey = known.keys().next().value;
+		if (oldestKey) {
+			known.delete(oldestKey);
+		}
+	}
+
 	return srcset;
 }
 

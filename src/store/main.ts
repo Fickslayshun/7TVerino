@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
+import { useUserAgent } from "@/composable/useUserAgent";
 import { useWorker } from "@/composable/useWorker";
-import { IBrowser, UAParser, UAParserInstance } from "ua-parser-js";
+import { IBrowser } from "ua-parser-js";
 
 export interface State {
 	platform: Platform;
@@ -10,7 +11,6 @@ export interface State {
 	identityFetched: boolean;
 	appUser: SevenTV.User | null;
 	location: Twitch.Location | null;
-	agent: UAParserInstance;
 	workers: {
 		net: Worker | null;
 	};
@@ -28,7 +28,6 @@ export const useStore = defineStore("main", {
 			identityFetched: false,
 			appUser: null,
 			location: null,
-			agent: new UAParser(),
 			workers: {
 				net: null,
 			},
@@ -93,13 +92,10 @@ export const useStore = defineStore("main", {
 			return state.location;
 		},
 		browser(): IBrowser {
-			return this.agent.getBrowser();
+			return useUserAgent().browser;
 		},
 		avifSupported(): boolean {
-			return (
-				(this.browser.name === "Chrome" && parseInt(this.browser.version as string, 10) >= 100) ||
-				(this.browser.name === "Firefox" && parseInt(this.browser.version as string, 10) >= 113)
-			);
+			return useUserAgent().avif;
 		},
 	},
 });

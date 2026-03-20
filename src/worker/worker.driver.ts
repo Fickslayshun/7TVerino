@@ -18,8 +18,6 @@ export class WorkerDriver extends EventTarget {
 	ports = new Map<symbol, WorkerPort>();
 	portSeq = 0;
 
-	cache: Cache | null = null;
-
 	constructor(public w: SharedWorkerGlobalScope) {
 		super();
 
@@ -96,19 +94,8 @@ export class WorkerDriver extends EventTarget {
 					getRandomInt(2500, 15000),
 				);
 
-				// Fetch config anew
-				this.http
-					.fetchConfig()
-					.then((cfg) => {
-						setTimeout(() => {
-							p.postMessage("CONFIG", cfg); // send config data to port
-						}, 3000); // TODO: Improve this, it should just be based on events from the page
-					})
-					.catch((e) => log.error("<API>", "Failed to fetch config:", e.status));
 			}
 		};
-
-		w.caches.open("SEVENTV#CACHE").then((c) => (this.cache = c));
 
 		this.log.info("Worker has spawned. Logs will be piped to the UI thread");
 	}

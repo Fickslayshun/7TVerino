@@ -193,12 +193,19 @@ async function loadModule(key: string): Promise<void> {
 		mountedModules[key] = {
 			component: await loader(),
 		};
+		deferredModuleKeys.delete(key);
+		if (!deferredModuleKeys.size && deferredLoadObserver) {
+			deferredLoadObserver.disconnect();
+			deferredLoadObserver = null;
+		}
 	} finally {
 		loadingModules.delete(key);
 	}
 }
 
 function shouldLoadDeferredModule(key: string): boolean {
+	if (mountedModules[key] || loadingModules.has(key)) return false;
+
 	switch (key) {
 		case "autoclaim":
 			return autoClaimEnabled.value && !!document.querySelector(".community-points-summary");
@@ -257,11 +264,13 @@ onMounted(() => {
 	synchronizeFrankerFaceZ();
 	queueDeferredModuleLoad();
 
-	deferredLoadObserver = new MutationObserver(() => queueDeferredModuleLoad());
-	deferredLoadObserver.observe(document.body, {
-		childList: true,
-		subtree: true,
-	});
+	if (deferredModuleKeys.size) {
+		deferredLoadObserver = new MutationObserver(() => queueDeferredModuleLoad());
+		deferredLoadObserver.observe(document.body, {
+			childList: true,
+			subtree: true,
+		});
+	}
 });
 
 onUnmounted(() => {

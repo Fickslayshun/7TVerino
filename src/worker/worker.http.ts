@@ -26,6 +26,7 @@ enum ProviderPriority {
 }
 
 const SHOULD_LOG_API_RESPONSE_BODY = import.meta.env.MODE !== "production";
+const sevenTVUserConnectionLoads = new Map<string, Promise<SevenTV.UserConnection>>();
 
 export class WorkerHttp {
 	private lastPresenceAt: Map<string, number> = new Map();
@@ -321,6 +322,15 @@ export class WorkerHttp {
 
 		this.driver.log.debug(`<Net/Http> fetching channel data for #${channel.username}`);
 
+		const userPromise = port.providers.has("7TV")
+			? seventv.loadUserConnection(port.platform ?? "TWITCH", channel.id).catch(() => void 0)
+			: Promise.resolve(void 0);
+		const providerSetPromises = [
+			["7TV", userPromise.then((es) => (es ? es.emote_set : null)).catch(() => void 0)],
+			["FFZ", port.providers.has("FFZ") ? frankerfacez.loadUserEmoteSet(channel.id).catch(() => void 0) : Promise.resolve(void 0)],
+			["BTTV", port.providers.has("BTTV") ? betterttv.loadUserEmoteSet(channel.id).catch(() => void 0) : Promise.resolve(void 0)],
+		] as [SevenTV.Provider, Promise<SevenTV.EmoteSet | null | undefined>][];
+
 		const existingChannel = await db.channels.where("id").equals(channel.id).first().catch(() => void 0);
 		const existingSetIDs = Array.isArray(existingChannel?.set_ids) ? [...existingChannel.set_ids] : [];
 		const existingSets = existingSetIDs.length
@@ -350,15 +360,6 @@ export class WorkerHttp {
 					set_ids: existingSetIDs,
 				}),
 		);
-
-		// setup fetching promises
-		const userPromise = seventv.loadUserConnection(port.platform ?? "TWITCH", channel.id).catch(() => void 0);
-
-		const promises = [
-			["7TV", () => userPromise.then((es) => (es ? es.emote_set : null)).catch(() => void 0)],
-			["FFZ", () => frankerfacez.loadUserEmoteSet(channel.id).catch(() => void 0)],
-			["BTTV", () => betterttv.loadUserEmoteSet(channel.id).catch(() => void 0)],
-		] as [SevenTV.Provider, () => Promise<SevenTV.EmoteSet>][];
 
 		const onResult = async (set: SevenTV.EmoteSet) => {
 			if (!set || !set.id || !set.provider) return;
@@ -402,11 +403,12 @@ export class WorkerHttp {
 
 		// iterate results and store sets to DB
 		Promise.allSettled(
-			promises
-				.filter(([provider]) => port.providers.has(provider))
-				.map(([provider, fetchSetData]) =>
-					fetchSetData()
-						.then(onResult)
+			providerSetPromises.map(([provider, pendingSet]) =>
+				pendingSet
+					.then((set) => {
+						if (!set) return;
+						return onResult(set);
+					})
 						.catch((err) =>
 							this.driver.log.error(
 								`<Net/Http> failed to load emote set from provider ${provider} in #${channel.username}`,
@@ -593,14 +595,7 @@ export class WorkerHttp {
 
 export const seventv = {
 	async loadUserConnection(platform: Platform, id: string): Promise<SevenTV.UserConnection> {
-		const resp = await doRequest(API_BASE.SEVENTV, `users/${platform.toLowerCase()}/${id}`).catch((err) =>
-			Promise.reject(err),
-		);
-		if (!resp || resp.status !== 200) {
-			return Promise.reject(resp);
-		}
-
-		const data = (await resp.json()) as SevenTV.UserConnection;
+		const data = await loadSevenTVUserConnection(platform, id);
 
 		const set = structuredClone(data.emote_set) as SevenTV.EmoteSet;
 
@@ -648,14 +643,7 @@ export const seventv = {
 	},
 
 	async loadUserData(platform: Platform, id: string): Promise<SevenTV.User> {
-		const resp = await doRequest(API_BASE.SEVENTV, `users/${platform.toLowerCase()}/${id}`).catch((err) =>
-			Promise.reject(err),
-		);
-		if (!resp || resp.status !== 200) {
-			return Promise.reject(resp);
-		}
-
-		const userConn = (await resp.json()) as SevenTV.UserConnection;
+		const userConn = await loadSevenTVUserConnection(platform, id);
 		if (!userConn.user) return Promise.reject(new Error("No user was returned!"));
 
 		return Promise.resolve(userConn.user);
@@ -679,6 +667,31 @@ export const seventv = {
 		return Promise.resolve(message);
 	},
 };
+
+async function loadSevenTVUserConnection(platform: Platform, id: string): Promise<SevenTV.UserConnection> {
+	const key = `${platform.toLowerCase()}:${id}`;
+	const existing = sevenTVUserConnectionLoads.get(key);
+	if (existing) {
+		return structuredClone(await existing);
+	}
+
+	const pending = doRequest(API_BASE.SEVENTV, `users/${platform.toLowerCase()}/${id}`)
+		.then(async (resp) => {
+			if (!resp || resp.status !== 200) {
+				return Promise.reject(resp);
+			}
+
+			return (await resp.json()) as SevenTV.UserConnection;
+		})
+		.finally(() => {
+			if (sevenTVUserConnectionLoads.get(key) === pending) {
+				sevenTVUserConnectionLoads.delete(key);
+			}
+		});
+
+	sevenTVUserConnectionLoads.set(key, pending);
+	return structuredClone(await pending);
+}
 
 export const frankerfacez = {
 	async loadUserEmoteSet(channelID: string): Promise<SevenTV.EmoteSet> {

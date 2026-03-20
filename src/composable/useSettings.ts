@@ -8,6 +8,9 @@ const raw = reactive({} as Record<string, SevenTV.SettingType>);
 const nodes = reactive({} as Record<string, SevenTV.SettingNode>);
 
 const ffz = useFrankerFaceZ();
+const settingsBootstrap = db.ready().then(async () => {
+	fillSettings(await db.settings.toArray());
+});
 
 const deserializationFunctions: {
 	[key: string]: (value: SevenTV.SettingType) => object;
@@ -62,7 +65,7 @@ function toConfigRef<T extends SevenTV.SettingType>(key: string, defaultValue?: 
 	});
 }
 
-db.ready().then(() =>
+void settingsBootstrap.then(() =>
 	useLiveQuery(
 		() => db.settings.toArray(),
 		(s) => fillSettings(s),
@@ -82,6 +85,10 @@ export async function fillSettings(s: SevenTV.Setting<SevenTV.SettingType>[]) {
 			persist: nodes[key]?.persist ?? true,
 		} as SevenTV.SettingNode;
 	}
+}
+
+export function waitForSettingsBootstrap(): Promise<void> {
+	return settingsBootstrap;
 }
 
 export function getUnserializableSettings() {

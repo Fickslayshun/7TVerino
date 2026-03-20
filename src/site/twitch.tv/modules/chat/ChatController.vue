@@ -7,6 +7,7 @@
 			:input-container="inputContainerEl"
 			:active-target="tverinoActiveTarget"
 			:native-input-status="nativeTVerinoInputStatus"
+			:native-tray-state="nativeTVerinoTrayState"
 			:native-send-message="sendNativeTVerinoMessage"
 			:set-active-target="setTVerinoActiveTarget"
 			:current-ctx="ctx"
@@ -130,9 +131,35 @@ const inputHostEl = document.createElement("seventv-container");
 inputHostEl.id = "seventv-tverino-input";
 const inputContainerEl = ref<HTMLElement>(inputHostEl);
 const TVERINO_ACTIVE_VIEWPORT_CLASS = "seventv-tverino-active-viewport";
+const TVERINO_INPUT_ALERT_ACTIVE_CLASS = "seventv-tverino-has-native-alert";
+const NATIVE_PRIVATE_CALLOUT_SELECTOR = [
+	'[data-test-selector="chat-private-callout-queue__callout-container"]',
+	'[data-a-target="chat-private-callout__primary-button"]',
+].join(", ");
+const NATIVE_SHARE_RESUB_TRAY_SELECTOR = ".chat-input-tray__open";
+
+interface NativeTVerinoTrayState {
+	active: boolean;
+	sendHandlerType: string;
+	placeholder: string;
+	sendButtonLabel: string;
+	allowEmpty: boolean;
+	disableChat: boolean;
+}
+
+const EMPTY_NATIVE_TVERINO_TRAY_STATE: NativeTVerinoTrayState = {
+	active: false,
+	sendHandlerType: "",
+	placeholder: "",
+	sendButtonLabel: "Chat",
+	allowEmpty: false,
+	disableChat: false,
+};
+
 let observedChatRoomRoot: HTMLElement | null = null;
 let observedMessageViewport: HTMLElement | null = null;
 let observedChatInputRoot: HTMLElement | null = null;
+let observedTVerinoInputRoot: HTMLElement | null = null;
 let relocatedAlertNodes: {
 	el: HTMLElement;
 	parent: Node | null;
@@ -170,6 +197,7 @@ const tverinoActiveTarget = ref<SevenTV.TVerinoActiveTarget>({
 	login: "",
 	displayName: "",
 });
+const nativeTVerinoTrayState = ref<NativeTVerinoTrayState>({ ...EMPTY_NATIVE_TVERINO_TRAY_STATE });
 const forceStandardHydration = ref(!tverinoEnabled.value);
 
 function setTVerinoActiveTarget(nextTarget: SevenTV.TVerinoActiveTarget): void {
@@ -222,6 +250,7 @@ function clearRelocatedAlertNodes(restoreToSource: boolean): void {
 	relocatedAlertNodes = [];
 
 	alertHostEl.classList.remove("active");
+	syncTVerinoInputAlertState();
 
 	if (!nodes.length) return;
 
@@ -230,6 +259,8 @@ function clearRelocatedAlertNodes(restoreToSource: boolean): void {
 		if (!lane) continue;
 
 		const { el, parent, nextSibling } = lane;
+		el.classList.remove("seventv-relocated-private-callout-shell");
+		el.classList.remove("seventv-relocated-native-input-tray");
 		if (!restoreToSource) {
 			el.remove();
 			continue;
@@ -257,6 +288,46 @@ function restoreRelocatedAlertNodes() {
 	clearRelocatedAlertNodes(true);
 }
 
+function getTVerinoInputRoot(): HTMLElement | null {
+	const inputRoot = inputHostEl.querySelector(":scope > .seventv-tverino-input");
+	return inputRoot instanceof HTMLElement ? inputRoot : null;
+}
+
+function syncTVerinoInputAlertState(): void {
+	const inputRoot = getTVerinoInputRoot();
+
+	if (observedTVerinoInputRoot && observedTVerinoInputRoot !== inputRoot) {
+		observedTVerinoInputRoot.classList.remove(TVERINO_INPUT_ALERT_ACTIVE_CLASS);
+	}
+
+	observedTVerinoInputRoot = inputRoot;
+	inputRoot?.classList.toggle(TVERINO_INPUT_ALERT_ACTIVE_CLASS, alertHostEl.classList.contains("active"));
+}
+
+function syncAlertHostPlacement(
+	fallbackParent?: HTMLElement | null,
+	fallbackBefore?: Node | null,
+	preferInputRoot = true,
+): void {
+	const inputContainer = preferInputRoot && inputHostEl.isConnected ? inputHostEl : null;
+	if (inputContainer) {
+		if (alertHostEl.parentElement !== inputContainer || alertHostEl !== inputContainer.firstElementChild) {
+			inputContainer.insertBefore(alertHostEl, inputContainer.firstChild);
+		}
+
+		syncTVerinoInputAlertState();
+		return;
+	}
+
+	const parent = fallbackParent ?? inputHostEl.parentElement;
+	const insertBefore = fallbackBefore ?? inputHostEl;
+	if (parent && (alertHostEl.parentElement !== parent || alertHostEl.nextSibling !== insertBefore)) {
+		parent.insertBefore(alertHostEl, insertBefore);
+	}
+
+	syncTVerinoInputAlertState();
+}
+
 function disconnectAlertRelocationObserver(removeViewportClass = false) {
 	alertObserver?.disconnect();
 	alertObserver = null;
@@ -267,8 +338,80 @@ function disconnectAlertRelocationObserver(removeViewportClass = false) {
 	observedMessageViewport = null;
 }
 
+function getNativeAutocompleteInstance(
+	chatInputRoot: HTMLElement | null = observedChatInputRoot,
+): HookedInstance<Twitch.ChatAutocompleteComponent> | null {
+	if (!(chatInputRoot instanceof HTMLElement)) return null;
+
+	const chatInputModule = getModule<"TWITCH", "chat-input">("chat-input");
+	const autocompleteInstances = chatInputModule?.instance?.component?.instances ?? [];
+
+	for (const instance of autocompleteInstances as HookedInstance<Twitch.ChatAutocompleteComponent>[]) {
+		const instanceRoot = instance.domNodes.root;
+		if (!(instanceRoot instanceof Element)) continue;
+		if (!chatInputRoot.contains(instanceRoot)) continue;
+		if (instance.component.props?.channelID && instance.component.props.channelID !== ctx.id) continue;
+		return instance;
+	}
+
+	return null;
+}
+
+function readNativeTVerinoTrayState(
+	chatInputRoot: HTMLElement | null = observedChatInputRoot,
+): NativeTVerinoTrayState {
+	const autocompleteInstance = getNativeAutocompleteInstance(chatInputRoot);
+	const tray = autocompleteInstance?.component.props?.tray as
+		| Twitch.ChatTray<keyof Twitch.ChatTray.Type, keyof Twitch.ChatTray.SendMessageHandler.Type>
+		| null
+		| undefined;
+	const trayType = typeof tray?.type === "string" ? tray.type : "";
+	const sendHandlerType =
+		typeof tray?.sendMessageHandler?.type === "string" ? tray.sendMessageHandler.type : "";
+
+	if (sendHandlerType !== "share-resub" && trayType !== "share-resub") {
+		return { ...EMPTY_NATIVE_TVERINO_TRAY_STATE };
+	}
+
+	return {
+		active: true,
+		sendHandlerType,
+		placeholder: typeof tray?.placeholder === "string" ? tray.placeholder : "",
+		sendButtonLabel:
+			typeof tray?.sendButtonOverride === "string" && tray.sendButtonOverride.trim()
+				? tray.sendButtonOverride.trim()
+				: "Share",
+		allowEmpty: true,
+		disableChat: !!tray?.disableChat,
+	};
+}
+
+function syncNativeTVerinoTrayState(chatInputRoot: HTMLElement | null = observedChatInputRoot): void {
+	nativeTVerinoTrayState.value = readNativeTVerinoTrayState(chatInputRoot);
+}
+
+function canBridgeNativeTrayFlow(chatInputRoot: HTMLElement | null = observedChatInputRoot): boolean {
+	const trayState = readNativeTVerinoTrayState(chatInputRoot);
+	if (!trayState.active) {
+		return false;
+	}
+
+	const autocompleteInstance = getNativeAutocompleteInstance(chatInputRoot);
+	const sendButton = chatInputRoot?.querySelector<HTMLButtonElement>("button[data-a-target='chat-send-button']");
+	return !!autocompleteInstance && !!sendButton;
+}
+
+// Keep 7TVerino active unless the native share-resub tray cannot be bridged cleanly.
+function shouldUseNativeInputFlow(chatInputRoot: HTMLElement | null): boolean {
+	if (!(chatInputRoot instanceof HTMLElement)) return false;
+
+	const trayState = readNativeTVerinoTrayState(chatInputRoot);
+	return trayState.active && !canBridgeNativeTrayFlow(chatInputRoot);
+}
+
 function syncTVerinoInputVisibility(): void {
-	const shouldShowTVerinoInput = tverinoEnabled.value;
+	const shouldShowTVerinoInput = tverinoEnabled.value && !shouldUseNativeInputFlow(observedChatInputRoot);
+	syncNativeTVerinoTrayState(observedChatInputRoot);
 
 	inputHostEl.classList.toggle("active", shouldShowTVerinoInput);
 	observedChatInputRoot?.classList.toggle("seventv-tverino-native-input-hidden", shouldShowTVerinoInput);
@@ -276,12 +419,16 @@ function syncTVerinoInputVisibility(): void {
 		"seventv-tverino-native-input-pending",
 		shouldShowTVerinoInput && !observedChatInputRoot,
 	);
+	syncTVerinoInputAlertState();
 }
 
 function resetTVerinoInputHost(): void {
 	observedChatRoomRoot?.classList.remove("seventv-tverino-native-input-pending");
 	observedChatInputRoot?.classList.remove("seventv-tverino-native-input-hidden");
 	observedChatInputRoot = null;
+	observedTVerinoInputRoot?.classList.remove(TVERINO_INPUT_ALERT_ACTIVE_CLASS);
+	observedTVerinoInputRoot = null;
+	nativeTVerinoTrayState.value = { ...EMPTY_NATIVE_TVERINO_TRAY_STATE };
 	inputHostEl.classList.remove("active");
 	inputHostEl.remove();
 }
@@ -298,6 +445,7 @@ function syncTVerinoInputHost(chatRoomRoot: HTMLElement | null): void {
 	if (!(chatInputRoot instanceof HTMLElement) || !chatInputRoot.parentElement) {
 		observedChatInputRoot?.classList.remove("seventv-tverino-native-input-hidden");
 		observedChatInputRoot = null;
+		nativeTVerinoTrayState.value = { ...EMPTY_NATIVE_TVERINO_TRAY_STATE };
 		inputHostEl.remove();
 		return;
 	}
@@ -312,6 +460,7 @@ function syncTVerinoInputHost(chatRoomRoot: HTMLElement | null): void {
 		chatInputRoot.parentElement.insertBefore(inputHostEl, chatInputRoot);
 	}
 
+	syncAlertHostPlacement(chatInputRoot.parentElement, inputHostEl);
 	syncTVerinoInputVisibility();
 	chatRoomRoot.classList.remove("seventv-tverino-native-input-pending");
 }
@@ -342,6 +491,7 @@ function collectRelocatableAlertNodes(messageViewport: HTMLElement): HTMLElement
 			continue;
 		}
 		if (matchesRelocatableModule(current)) {
+			current.classList.add("seventv-relocated-viewport-alert");
 			nodes.push(current);
 		}
 
@@ -349,6 +499,41 @@ function collectRelocatableAlertNodes(messageViewport: HTMLElement): HTMLElement
 	}
 
 	return nodes;
+}
+
+function collectPrivateCalloutNodes(chatInputRoot: HTMLElement | null): HTMLElement[] {
+	if (!(chatInputRoot instanceof HTMLElement)) return [];
+
+	const nodes = new Set<HTMLElement>();
+	for (const candidate of Array.from(chatInputRoot.querySelectorAll<HTMLElement>(NATIVE_PRIVATE_CALLOUT_SELECTOR))) {
+		if (candidate.closest('[aria-hidden="true"]')) continue;
+
+		let current: HTMLElement | null = candidate;
+		while (current?.parentElement && current.parentElement !== chatInputRoot) {
+			current = current.parentElement;
+		}
+
+		if (current?.parentElement === chatInputRoot) {
+			current.classList.add("seventv-relocated-private-callout-shell");
+			nodes.add(current);
+		}
+	}
+
+	return Array.from(nodes);
+}
+
+function collectNativeShareResubTrayNodes(chatInputRoot: HTMLElement | null): HTMLElement[] {
+	if (!(chatInputRoot instanceof HTMLElement)) return [];
+	if (!readNativeTVerinoTrayState(chatInputRoot).active) return [];
+
+	const nodes = new Set<HTMLElement>();
+	for (const candidate of Array.from(chatInputRoot.querySelectorAll<HTMLElement>(NATIVE_SHARE_RESUB_TRAY_SELECTOR))) {
+		if (candidate.closest('[aria-hidden="true"]')) continue;
+		candidate.classList.add("seventv-relocated-native-input-tray");
+		nodes.add(candidate);
+	}
+
+	return Array.from(nodes);
 }
 
 function syncAlertDock(chatRoomRoot: HTMLElement | null, messageViewport: HTMLElement | null) {
@@ -359,15 +544,37 @@ function syncAlertDock(chatRoomRoot: HTMLElement | null, messageViewport: HTMLEl
 
 	const isNativeTargetActive =
 		tverinoActiveTarget.value.kind === "native" && tverinoActiveTarget.value.id === ctx.id;
-	if (!isNativeTargetActive) {
-		alertHostEl.classList.remove("active");
-		return;
-	}
 
 	observedChatRoomRoot = chatRoomRoot;
 	observedMessageViewport = messageViewport;
+	syncNativeTVerinoTrayState(observedChatInputRoot);
+	const viewportAlertNodes = isNativeTargetActive ? collectRelocatableAlertNodes(messageViewport) : [];
+	const inputLaneAlertNodes = [
+		...collectPrivateCalloutNodes(observedChatInputRoot),
+		...collectNativeShareResubTrayNodes(observedChatInputRoot),
+	];
+	const hasRelocatedInputLaneNodes = relocatedAlertNodes.some(
+		(lane) =>
+			alertHostEl.contains(lane.el) &&
+			(lane.el.classList.contains("seventv-relocated-private-callout-shell") ||
+				lane.el.classList.contains("seventv-relocated-native-input-tray")),
+	);
+	const hasRelocatedViewportAlertNodes = relocatedAlertNodes.some(
+		(lane) =>
+			lane.el.isConnected &&
+			alertHostEl.contains(lane.el) &&
+			lane.el.classList.contains("seventv-relocated-viewport-alert"),
+	);
+	const preferInputRoot = inputLaneAlertNodes.length > 0 || hasRelocatedInputLaneNodes;
+	syncAlertHostPlacement(
+		preferInputRoot
+			? (observedChatInputRoot?.parentElement as HTMLElement | null)
+			: messageViewport.parentElement,
+		preferInputRoot ? inputHostEl : messageViewport,
+		preferInputRoot,
+	);
 
-	const nativeAlertNodes = collectRelocatableAlertNodes(messageViewport);
+	const nativeAlertNodes = [...viewportAlertNodes, ...inputLaneAlertNodes];
 	if (nativeAlertNodes.length) {
 		const sameNodes =
 			relocatedAlertNodes.length === nativeAlertNodes.length &&
@@ -390,14 +597,13 @@ function syncAlertDock(chatRoomRoot: HTMLElement | null, messageViewport: HTMLEl
 		}
 
 		alertHostEl.classList.add("active");
+		syncTVerinoInputAlertState();
 		return;
 	}
 
-	if (
-		relocatedAlertNodes.length > 0 &&
-		relocatedAlertNodes.every((lane) => lane.el.isConnected && alertHostEl.contains(lane.el))
-	) {
+	if (hasRelocatedInputLaneNodes || (isNativeTargetActive && hasRelocatedViewportAlertNodes)) {
 		alertHostEl.classList.add("active");
+		syncTVerinoInputAlertState();
 		return;
 	}
 
@@ -418,6 +624,12 @@ function connectAlertRelocationObserver(chatRoomRoot: HTMLElement | null, messag
 	observedChatRoomRoot = chatRoomRoot;
 	observedMessageViewport = messageViewport;
 	alertObserver = new MutationObserver(() => {
+		if (!observedChatInputRoot || !observedChatInputRoot.isConnected) {
+			syncTVerinoInputHost(observedChatRoomRoot);
+		} else {
+			syncTVerinoInputVisibility();
+		}
+
 		syncAlertDock(observedChatRoomRoot, observedMessageViewport);
 	});
 	alertObserver.observe(chatRoomRoot, {
@@ -462,15 +674,17 @@ watchEffect(() => {
 		return;
 	}
 
-	if (alertHostEl.parentElement !== headerInsertionParent || alertHostEl.nextSibling !== headerInsertBefore) {
-		headerInsertionParent.insertBefore(alertHostEl, headerInsertBefore);
-	}
-
-	if (headerHostEl.parentElement !== headerInsertionParent || headerHostEl.nextSibling !== alertHostEl) {
-		headerInsertionParent.insertBefore(headerHostEl, alertHostEl);
+	if (headerHostEl.parentElement !== headerInsertionParent || headerHostEl.nextSibling !== headerInsertBefore) {
+		headerInsertionParent.insertBefore(headerHostEl, headerInsertBefore);
 	}
 
 	syncTVerinoInputHost(chatRoomRoot);
+
+	const alertInsertionParent = inputHostEl.parentElement ?? headerInsertionParent;
+	const alertInsertBefore: Node | null =
+		inputHostEl.parentElement === alertInsertionParent ? inputHostEl : headerInsertBefore;
+	syncAlertHostPlacement(alertInsertionParent, alertInsertBefore);
+
 	connectAlertRelocationObserver(chatRoomRoot, messageViewport);
 	syncAlertDock(chatRoomRoot, messageViewport);
 });
@@ -480,6 +694,10 @@ watch(
 	() => {
 		syncTVerinoInputVisibility();
 		syncAlertDock(observedChatRoomRoot, observedMessageViewport);
+		void nextTick(() => {
+			syncTVerinoInputVisibility();
+			syncAlertDock(observedChatRoomRoot, observedMessageViewport);
+		});
 	},
 	{ deep: true, immediate: true },
 );
@@ -626,6 +844,7 @@ function sendNativeTVerinoMessage(
 	message: string,
 	reply?: NonNullable<Twitch.DisplayableMessage["reply"]>,
 ): boolean {
+	const trayState = readNativeTVerinoTrayState(observedChatInputRoot);
 	if (reply?.parentMsgId) {
 		const transportStatus = getStatus();
 		if (transportStatus.state !== "connected" || !ctx.username) {
@@ -640,7 +859,7 @@ function sendNativeTVerinoMessage(
 	const chatProps = controller.value?.component?.props as
 		| {
 				chatConnectionAPI?: { sendMessage?: Function };
-				onSendMessage?: (value: string, reply: NonNullable<Twitch.DisplayableMessage["reply"]>) => unknown;
+				onSendMessage?: (value: string, reply?: NonNullable<Twitch.DisplayableMessage["reply"]>) => unknown;
 		  }
 		| undefined;
 	const chatConnection = chatProps?.chatConnectionAPI;
@@ -649,6 +868,22 @@ function sendNativeTVerinoMessage(
 	}
 
 	try {
+		if (trayState.active) {
+			if (typeof chatProps.onSendMessage === "function") {
+				chatProps.onSendMessage(message);
+				return true;
+			}
+
+			const nativeAutocomplete = getNativeAutocompleteInstance(observedChatInputRoot);
+			const nativeSendButton =
+				observedChatInputRoot?.querySelector<HTMLButtonElement>("button[data-a-target='chat-send-button']");
+			if (nativeAutocomplete && nativeSendButton) {
+				nativeAutocomplete.component.setValue(message);
+				nativeSendButton.click();
+				return true;
+			}
+		}
+
 		chatConnection.sendMessage.call(chatConnection, message);
 		return true;
 	} catch (error) {
@@ -1137,8 +1372,8 @@ seventv-container#seventv-tverino-alerts {
 	max-width: 100%;
 	min-width: 0;
 	box-sizing: border-box;
-	overflow: hidden;
-	background: var(--seventv-background-shade-1);
+	overflow: visible;
+	background: transparent;
 
 	&.active {
 		display: block;
@@ -1150,6 +1385,22 @@ seventv-container#seventv-tverino-alerts {
 		max-width: 100%;
 		min-width: 0;
 		box-sizing: border-box;
+	}
+
+	[data-test-selector="chat-private-callout-queue__callout-container"] {
+		margin: 0;
+	}
+
+	> .seventv-relocated-private-callout-shell {
+		width: 100%;
+		max-width: 100%;
+		margin: 0;
+	}
+
+	> .seventv-relocated-native-input-tray {
+		width: 100%;
+		max-width: 100%;
+		margin: 0;
 	}
 
 	.community-highlight,
@@ -1168,7 +1419,20 @@ seventv-container#seventv-tverino-input {
 }
 
 seventv-container#seventv-tverino-input.active {
-	display: block;
+	display: flex;
+	flex-direction: column;
+	overflow: visible;
+}
+
+seventv-container#seventv-tverino-input > .seventv-tverino-input.seventv-tverino-has-native-alert {
+	gap: 0.45rem;
+	padding-top: 0;
+	border-top: 0;
+}
+
+seventv-container#seventv-tverino-input > seventv-container#seventv-tverino-alerts {
+	flex: 0 0 auto;
+	margin: 0 0.8rem;
 }
 
 section[data-test-selector="chat-room-component-layout"].seventv-tverino-native-input-pending .chat-input {

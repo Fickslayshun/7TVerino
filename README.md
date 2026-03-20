@@ -6,9 +6,9 @@ Unofficial 7TV extension fork blending 7TV and a Chatterino-style Twitch workflo
 
 This repository is separate from the official 7TV extension. It keeps the source here and ships installable builds through GitHub Releases.
 
-[![Download Latest Build](https://img.shields.io/badge/Download-Latest%20Build-2ea44f?style=for-the-badge)](https://github.com/Fickslayshun/7TVerino/releases/latest)
+[![Download Chromium Build](https://img.shields.io/badge/Download-Chromium%20Build-2ea44f?style=for-the-badge)](https://github.com/Fickslayshun/7TVerino/releases/download/7tverino/7tverino.zip)
+[![Download Firefox Build](https://img.shields.io/badge/Download-Firefox%20Build-ff7139?style=for-the-badge)](https://github.com/Fickslayshun/7TVerino/releases/download/7tverino/7tverino-firefox.zip)
 [![All Releases](https://img.shields.io/badge/GitHub-Releases-1f6feb?style=for-the-badge)](https://github.com/Fickslayshun/7TVerino/releases)
-[![Direct Download](https://img.shields.io/badge/Direct%20Download-7tverino.zip-black?style=for-the-badge)](https://github.com/Fickslayshun/7TVerino/releases/download/7tverino/7tverino.zip)
 
 ## What Is 7TVerino?
 
@@ -23,7 +23,8 @@ If you just want to install the extension, do not download the source code zip f
 Use the stable `7tverino` release instead:
 
 -   Open [the `7tverino` release](https://github.com/Fickslayshun/7TVerino/releases/tag/7tverino)
--   Or download [7tverino.zip](https://github.com/Fickslayshun/7TVerino/releases/download/7tverino/7tverino.zip) directly
+-   Chromium browsers: download [7tverino.zip](https://github.com/Fickslayshun/7TVerino/releases/download/7tverino/7tverino.zip)
+-   Firefox: download [7tverino-firefox.zip](https://github.com/Fickslayshun/7TVerino/releases/download/7tverino/7tverino-firefox.zip)
 -   Extract it somewhere you want to keep it
 
 ## Install
@@ -33,16 +34,23 @@ Use the stable `7tverino` release instead:
 1. Open `chrome://extensions` or `edge://extensions`
 2. Enable `Developer mode`
 3. Click `Load unpacked`
-4. Select the extracted release folder
+4. Extract `7tverino.zip`
+5. Select the extracted `7tverino` folder
+6. Make sure that folder contains `manifest.json` directly inside it
 
 ### Firefox
 
-Firefox manual installs are more restrictive for unsigned extensions. For temporary testing:
+Firefox manual installs are more restrictive for unsigned extensions. The GitHub Firefox build is an MV2 temporary-testing package, so it must be loaded through `about:debugging` after extraction:
 
 1. Open `about:debugging`
 2. Click `This Firefox`
 3. Click `Load Temporary Add-on`
-4. Select the extracted extension's `manifest.json`
+4. Extract `7tverino-firefox.zip`
+5. Open the extracted `7tverino-firefox` folder
+6. Select its `manifest.json`
+7. If you do not see `manifest.json`, you are in the wrong folder
+
+Permanent Firefox installs still require a signed AMO build. The GitHub asset is for temporary/manual testing only.
 
 ## Build Your Own
 
@@ -51,7 +59,7 @@ yarn install
 yarn release:build
 ```
 
-That creates a release zip in `release-builds/`.
+That creates browser-specific release zips in `release-builds/`.
 
 Every push to `main` also refreshes the public GitHub release tagged `7tverino`.
 
