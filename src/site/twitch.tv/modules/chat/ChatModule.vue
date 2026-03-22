@@ -142,7 +142,7 @@ defineExpose({
 <script lang="ts">
 import { markRaw } from "vue";
 import { HighlightDef } from "@/composable/chat/useChatHighlights";
-import type { RecentEmoteBarScope, RecentSentEmoteEntry } from "@/composable/chat/useRecentSentEmotes";
+import type { RecentEmoteBarMode, RecentEmoteBarScope, RecentSentEmoteEntry } from "@/composable/chat/useRecentSentEmotes";
 import { declareConfig, useConfig } from "@/composable/useSettings";
 import PersonalTimeoutManager from "./components/PersonalTimeoutManager.vue";
 import SettingsConfigHighlights from "@/app/settings/SettingsConfigHighlights.vue";
@@ -407,21 +407,25 @@ export const config = [
 			serialize: false,
 		},
 	),
-	declareConfig("chat.recent_emote_bar", "TOGGLE", {
+	declareConfig<RecentEmoteBarMode>("chat.recent_emote_bar.mode", "DROPDOWN", {
 		path: ["7TVerino", "Chat", 4],
-		label: "Recent Emote Bar",
-		hint: "Show a recent emote bar above the chat box. Click sends immediately. Ctrl+Click or Alt+Click inserts into the chat box.",
-		defaultValue: true,
+		label: "Emote Menu (Recent/Most Used)",
+		hint: "Choose whether the emote menu above the chat box shows recent emotes, most-used emotes, or both. Click sends immediately. Ctrl+Click or Alt+Click inserts into the chat box.",
+		options: [
+			["Recent", "recent"],
+			["Most Used", "most_used"],
+			["Both", "combine"],
+		],
+		defaultValue: "recent",
 	}),
 	declareConfig<RecentEmoteBarScope>("chat.recent_emote_bar.scope", "DROPDOWN", {
 		path: ["7TVerino", "Chat", 5],
-		label: "Recent Emote Bar Scope",
-		hint: "Choose whether the recent bar shows only 7TV emotes or all active non-emoji emotes.",
+		label: "Emote Menu Scope",
+		hint: "Choose whether the emote menu shows only 7TV emotes or all active non-emoji emotes.",
 		options: [
 			["7TV only", "7tv"],
 			["All active emotes", "all"],
 		],
-		disabledIf: () => !useConfig<boolean>("chat.recent_emote_bar").value,
 		defaultValue: "7tv",
 	}),
 	declareConfig<Map<string, RecentSentEmoteEntry[]>>("chat.recent_emote_bar.history", "NONE", {
@@ -433,14 +437,14 @@ export const config = [
 				: (v as Map<string, RecentSentEmoteEntry[]>),
 	}),
 	declareConfig("chat.tverino.beta_notice", "NONE", {
-		path: ["7TVerino", "Chat", 6],
+		path: ["7TVerino", "Chat", 7],
 		label: "7TVerino",
 		hint: "Replaces Twitch chat with a tabbed 7TV-styled multi-channel shell. Disable the toggle below if you want to fall back to native Twitch chat.",
 		defaultValue: false,
 		serialize: false,
 	}),
 	declareConfig("chat.tverino.enabled", "TOGGLE", {
-		path: ["7TVerino", "Chat", 7],
+		path: ["7TVerino", "Chat", 8],
 		label: "Enable 7TVerino",
 		hint: "Use the 7TVerino chat experience. Disable this if you want to fall back to native Twitch chat.",
 		defaultValue: true,
@@ -510,12 +514,6 @@ export const config = [
 		label: "Show Returning Chatters (Moderator only)",
 		hint: "Whether or not to highlight users who have returned",
 		defaultValue: false,
-	}),
-	declareConfig<boolean>("highlights.basic.raider", "TOGGLE", {
-		path: ["Highlights", "Built-In"],
-		label: "Show Raiders (Moderator only)",
-		hint: "Whether or not to highlight users who are part of a raid",
-		defaultValue: true,
 	}),
 	declareConfig<boolean>("highlights.basic.first_time_chatter", "TOGGLE", {
 		path: ["Highlights", "Built-In"],

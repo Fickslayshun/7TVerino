@@ -1,5 +1,5 @@
 <template>
-	<template v-for="inst in autocompleteProvider.instances" :key="inst.identifier">
+	<template v-for="inst in autocompleteProvider.instances" :key="getAutocompleteInstanceKey(inst)">
 		<RecentEmoteBar v-if="shouldMount.get(inst)" :instance="inst" />
 		<ChatInput v-if="shouldMount.get(inst)" :instance="inst" />
 		<ChatSpam
@@ -41,14 +41,20 @@ const autocompleteProvider = useComponentHook<Twitch.ChatAutocompleteComponent>(
 		containerClass: "seventv-chat-input-textarea",
 		hooks: {
 			update(instance) {
-				const hasChannelID = !!(
-					instance.component.props?.channelID ?? instance.component.componentRef?.props?.channelID
-				);
-				shouldMount.set(instance, (shouldMount.get(instance) ?? false) || hasChannelID);
+				shouldMount.set(instance, !!getAutocompleteInstanceChannelID(instance));
 			},
 		},
 	},
 );
+
+function getAutocompleteInstanceChannelID(instance: HookedInstance<Twitch.ChatAutocompleteComponent>): string {
+	return instance.component.props?.channelID ?? instance.component.componentRef?.props?.channelID ?? "";
+}
+
+function getAutocompleteInstanceKey(instance: HookedInstance<Twitch.ChatAutocompleteComponent>): string {
+	const channelID = getAutocompleteInstanceChannelID(instance);
+	return `${String(instance.identifier)}:${channelID || "pending"}`;
+}
 
 // Neuter message restriction trays
 const hookChecks = [
@@ -207,12 +213,6 @@ export const config = [
 		label: "Bypass Duplicate Message Check",
 		hint: "If enabled, you will be able to send the same message multiple times in a row",
 		defaultValue: false,
-	}),
-	declareConfig("chat_input.spam.rapid_fire_send", "TOGGLE", {
-		path: ["Chat", "Typing"],
-		label: "Quick Send",
-		hint: "If enabled, you can use the Ctrl+Enter shortcut to keep the current message in the input box after sending",
-		defaultValue: true,
 	}),
 ];
 </script>

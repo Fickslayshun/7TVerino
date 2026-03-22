@@ -126,13 +126,6 @@ export const globalSettings = [
 		],
 		defaultValue: "7TV",
 	}),
-	declareConfig<boolean>("ui.emote_menu.most_used", "TOGGLE", {
-		path: ["Appearance", "Interface"],
-		label: "Emote Menu: Most Used Emotes",
-		hint: "Whether or not to display the emotes you type the most in the emote menu (Temporarily disabled due to performance issues)",
-		disabledIf: () => true,
-		defaultValue: true,
-	}),
 	declareConfig<boolean>("vanity.nametag_paints", "TOGGLE", {
 		path: ["Appearance", "Vanity"],
 		label: "Nametag Paints",

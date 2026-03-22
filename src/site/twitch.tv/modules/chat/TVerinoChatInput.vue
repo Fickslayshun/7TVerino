@@ -1,21 +1,58 @@
 <template>
 	<div class="seventv-tverino-input" :class="{ disabled: inputStatus.state !== 'connected' }">
 		<div class="seventv-tverino-compose" :class="{ focused: isFocused }">
-			<div v-if="showRecentBar" class="seventv-tverino-recents" :class="{ empty: !resolvedRecentEntries.length }">
-				<template v-if="resolvedRecentEntries.length">
-					<button
-						v-for="emote of resolvedRecentEntries"
-						:key="`${emote.provider}:${emote.id}`"
-						class="seventv-tverino-recents-item"
-						type="button"
-						:title="`${emote.name} - Click to send. Ctrl+Click or Alt+Click to insert.`"
-						@click="onRecentClick($event, emote)"
-					>
-						<Emote :emote="emote" :show-tooltip="false" :scale="0.74" />
-					</button>
-				</template>
-				<div v-else class="seventv-tverino-recents-empty">
-					Recent emotes appear here after you send them. Ctrl+Click or Alt+Click inserts.
+			<div v-if="showAnyRecentBar" class="seventv-tverino-recents-stack">
+				<div
+					v-if="showMostUsedBar"
+					class="seventv-tverino-recents"
+					:class="{ empty: !resolvedMostUsedEntries.length, 'most-used': true }"
+				>
+					<template v-if="resolvedMostUsedEntries.length">
+						<button
+							v-for="entry of resolvedMostUsedEntries"
+							:key="entry.key"
+							class="seventv-tverino-recents-item"
+							type="button"
+							:title="entry.title"
+							@click="onRecentClick($event, entry.emote)"
+						>
+							<Emote :emote="entry.emote" :show-tooltip="false" :scale="0.74" />
+							<span
+								v-if="entry.count !== null"
+								class="seventv-tverino-recents-count-pill most-used"
+							>
+								{{ formatUsageCount(entry.count) }}
+							</span>
+						</button>
+					</template>
+					<div v-else class="seventv-tverino-recents-empty">
+						{{ mostUsedBarEmptyText }}
+					</div>
+				</div>
+
+				<div
+					v-if="showRecentBar"
+					class="seventv-tverino-recents"
+					:class="{ empty: !resolvedRecentEntries.length }"
+				>
+					<template v-if="resolvedRecentEntries.length">
+						<button
+							v-for="entry of resolvedRecentEntries"
+							:key="entry.key"
+							class="seventv-tverino-recents-item"
+							type="button"
+							:title="entry.title"
+							@click="onRecentClick($event, entry.emote)"
+						>
+							<Emote :emote="entry.emote" :show-tooltip="false" :scale="0.74" />
+							<span v-if="entry.count !== null" class="seventv-tverino-recents-count-pill">
+								{{ formatUsageCount(entry.count) }}
+							</span>
+						</button>
+					</template>
+					<div v-else class="seventv-tverino-recents-empty">
+						{{ recentBarEmptyText }}
+					</div>
 				</div>
 			</div>
 
@@ -40,7 +77,7 @@
 				</button>
 			</div>
 
-			<form ref="inputShellRef" class="seventv-tverino-input-shell" @submit.prevent="submit()">
+			<form ref="inputShellRef" class="seventv-tverino-input-shell" @submit.prevent="submit(undefined, $event)">
 				<button
 					ref="badgeButtonRef"
 					class="seventv-tverino-badge-trigger seventv-tverino-badge-trigger-inline"
@@ -255,7 +292,12 @@
 			>
 				<TwitchChatSettingsIcon />
 			</button>
-			<button class="seventv-tverino-chat-button" type="button" :disabled="!canSend" @click="submit()">
+			<button
+				class="seventv-tverino-chat-button"
+				type="button"
+				:disabled="!canSend"
+				@click="submit(undefined, $event)"
+			>
 				{{ submitLabel }}
 			</button>
 		</div>
@@ -308,8 +350,13 @@ import { useChatEmotes } from "@/composable/chat/useChatEmotes";
 import { useAuthorEmoteSetRequests } from "@/composable/chat/useAuthorEmoteSetRequests";
 import { useChatMessageProcessor } from "@/composable/chat/useChatMessageProcessor";
 import { useChatMessages } from "@/composable/chat/useChatMessages";
-import { type RecentSentEmoteEntry, useRecentSentEmotes } from "@/composable/chat/useRecentSentEmotes";
+import {
+	type RecentSentEmoteEntry,
+	type RecentSentEmoteUsageEntry,
+	useRecentSentEmotes,
+} from "@/composable/chat/useRecentSentEmotes";
 import { useCosmetics } from "@/composable/useCosmetics";
+import { getModule } from "@/composable/useModule";
 import { useConfig } from "@/composable/useSettings";
 import { MessagePartType, MessageType } from "@/site/twitch.tv";
 import TwitchChannelPointsIcon from "@/assets/svg/icons/TwitchChannelPointsIcon.vue";
@@ -339,7 +386,9 @@ import type { TypedWorkerMessage } from "@/worker";
 
 interface SuggestionItem {
 	token: string;
-	kind: "emote" | "user";
+	replacement: string;
+	kind: "command" | "emote" | "user";
+	description?: string;
 	emote?: SevenTV.ActiveEmote;
 }
 
@@ -349,6 +398,17 @@ interface TabCycleState {
 	currentMatch: TabToken;
 	backwardsMatches: TabToken[];
 	forwardsMatches: TabToken[];
+}
+
+interface SubmitModifierLike {
+	ctrlKey?: boolean;
+}
+
+interface ResolvedRecentEntry {
+	key: string;
+	emote: SevenTV.ActiveEmote;
+	count: number | null;
+	title: string;
 }
 
 const AUTOCOMPLETION_MODE = {
@@ -916,8 +976,8 @@ function claimNativeChannelPoints(): void {
 	scheduleNativeClaimRefresh(token);
 }
 
-function resolveRecentEntry(entry: RecentSentEmoteEntry): SevenTV.ActiveEmote | null {
-	return (
+function resolveRecentEntry(entry: RecentSentEmoteEntry | RecentSentEmoteUsageEntry): ResolvedRecentEntry | null {
+	const resolvedEmote =
 		emotes.find(
 			(ae) =>
 				ae.id === entry.id &&
@@ -926,29 +986,275 @@ function resolveRecentEntry(entry: RecentSentEmoteEntry): SevenTV.ActiveEmote | 
 			true,
 		) ??
 		emotes.find((ae) => ae.id === entry.id && ae.provider === entry.provider, true) ??
-		null
-	);
+		emotes.find(
+			(ae) =>
+				ae.id === entry.id &&
+				ae.provider === entry.provider &&
+				(ae.unicode ?? ae.name) === (entry.name || ae.name),
+		) ??
+		emotes.find((ae) => ae.id === entry.id && ae.provider === entry.provider);
+	if (!resolvedEmote) return null;
+
+	const count = "count" in entry ? entry.count : null;
+	return {
+		key: `${entry.provider}:${entry.id}`,
+		emote: resolvedEmote,
+		count,
+		title:
+			count === null
+				? `${entry.name} - Click to send. Ctrl+Click or Alt+Click to insert.`
+				: `${entry.name} - Sent ${count} ${count === 1 ? "time" : "times"} in this channel. Click to send. Ctrl+Click or Alt+Click to insert.`,
+	};
 }
 
-const resolvedRecentEntries = computed(() =>
-	recentSentEmotes
-		.getEntries(props.ctx.id)
+function resolveRecentEntries(entries: (RecentSentEmoteEntry | RecentSentEmoteUsageEntry)[]): ResolvedRecentEntry[] {
+	return entries
 		.filter((entry) => recentSentEmotes.scopeAllows(entry.provider))
 		.map((entry) => resolveRecentEntry(entry))
-		.filter((entry): entry is SevenTV.ActiveEmote => !!entry),
+		.filter((entry): entry is ResolvedRecentEntry => !!entry);
+}
+
+const resolvedMostUsedEntries = computed(() => resolveRecentEntries(recentSentEmotes.getMostUsedEntries(props.ctx.id)));
+const resolvedRecentEntries = computed(() => {
+	const entries = resolveRecentEntries(recentSentEmotes.getEntries(props.ctx.id));
+	if (!(showRecentBar.value && showMostUsedBar.value)) return entries;
+
+	const mostUsedKeys = new Set(resolvedMostUsedEntries.value.map((entry) => entry.key));
+	return entries.filter((entry) => !mostUsedKeys.has(entry.key));
+});
+const showRecentBar = computed(() => recentSentEmotes.showRecentBar.value);
+const showMostUsedBar = computed(() => recentSentEmotes.showMostUsedBar.value);
+const showAnyRecentBar = computed(() => recentSentEmotes.isEnabled.value);
+const recentBarEmptyText = computed(
+	() => "Recent emotes appear here after you send them. Ctrl+Click or Alt+Click inserts.",
 );
-const showRecentBar = computed(() => recentSentEmotes.enabled.value);
+const mostUsedBarEmptyText = computed(
+	() => "Most-used emotes in this channel appear here after you send them. Ctrl+Click or Alt+Click inserts.",
+);
 const shouldShowSuggestions = computed(() => isFocused.value && !tabState.value && suggestionItems.value.length > 0);
 const shouldShowTabCarousel = computed(
 	() => shouldRenderAutocompleteCarousel.value && autocompleteMode.value !== AUTOCOMPLETION_MODE.ALWAYS_ON,
 );
 
-const suggestionItems = computed(() => {
+interface NativeAutocompleteResult {
+	current: string;
+	type: string;
+	element: unknown;
+	replacement: string;
+}
+
+type NativeCommandProvider = Twitch.ChatAutocompleteProvider<"command">;
+
+function getNativeAutocompleteInstance(): HookedInstance<Twitch.ChatAutocompleteComponent> | null {
+	const nativeChatInputModule = getModule<"TWITCH", "chat-input">("chat-input");
+	const autocompleteInstances = nativeChatInputModule?.instance?.component?.instances ?? [];
+
+	for (const instance of autocompleteInstances as HookedInstance<Twitch.ChatAutocompleteComponent>[]) {
+		if (instance.component.props?.channelID !== props.ctx.id) continue;
+		return instance;
+	}
+
+	return null;
+}
+
+function getNativeCommandProvider(): NativeCommandProvider | null {
+	const instance = getNativeAutocompleteInstance();
+	return (
+		(instance?.component.providers.find(
+			(entry) => entry.autocompleteType === "command",
+		) as NativeCommandProvider | undefined) ?? null
+	);
+}
+
+function findNativeAutocompleteProp(node: unknown, key: string): string {
+	if (!node || typeof node !== "object") return "";
+	if (Array.isArray(node)) {
+		for (const entry of node) {
+			const value = findNativeAutocompleteProp(entry, key);
+			if (value) return value;
+		}
+		return "";
+	}
+
+	const props = (node as { props?: Record<string, unknown> }).props;
+	if (props && typeof props[key] === "string") {
+		return props[key] as string;
+	}
+
+	return findNativeAutocompleteProp(props?.children, key);
+}
+
+function flattenNativeAutocompleteText(node: unknown): string {
+	if (typeof node === "string" || typeof node === "number") return String(node);
+	if (Array.isArray(node)) {
+		return node.map((entry) => flattenNativeAutocompleteText(entry)).filter(Boolean).join(" ");
+	}
+	if (!node || typeof node !== "object") return "";
+
+	return flattenNativeAutocompleteText((node as { props?: { children?: unknown } }).props?.children);
+}
+
+function resolveSuggestionEmote(token: string, replacement: string): SevenTV.ActiveEmote | undefined {
+	return (
+		emotes.active[token] ??
+		emotes.emojis[token] ??
+		Object.values(emotes.emojis).find((emote) => emote.unicode === replacement) ??
+		undefined
+	);
+}
+
+function normalizeSuggestionText(value: string | null | undefined): string {
+	return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function getNativeAutocompleteTrayRoot(): HTMLElement | null {
+	if (props.mode !== "native") return null;
+
+	const host = inputShellRef.value?.closest("seventv-container#seventv-tverino-input");
+	const nativeRoot = host?.nextElementSibling;
+	if (nativeRoot instanceof HTMLElement) {
+		return nativeRoot.querySelector<HTMLElement>(".chat-input-tray__open");
+	}
+
+	return document.querySelector<HTMLElement>(".chat-input.seventv-tverino-native-input-hidden .chat-input-tray__open");
+}
+
+function getCommandSuggestionReplacement(tokenLabel: string): string {
+	const command = normalizeSuggestionText(tokenLabel).match(/^\/\S+/)?.[0] ?? normalizeSuggestionText(tokenLabel);
+	return command ? `${command} ` : tokenLabel;
+}
+
+function getNativeTraySuggestionItems(token: string): SuggestionItem[] {
+	const trayRoot = getNativeAutocompleteTrayRoot();
+	if (!trayRoot) return [];
+
+	const buttons = Array.from(trayRoot.querySelectorAll<HTMLButtonElement>("button[data-a-target]"));
+	if (!buttons.length) return [];
+
+	const items = [] as SuggestionItem[];
+	const seen = new Set<string>();
+
+	for (const button of buttons) {
+		const tokenLabel = normalizeSuggestionText(button.dataset.aTarget);
+		if (!tokenLabel) continue;
+
+		const key = tokenLabel.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+
+		const description = normalizeSuggestionText(button.querySelector("p")?.textContent);
+		const kind = tokenLabel.startsWith("/") ? "command" : token.startsWith(":") ? "emote" : "user";
+		const replacement =
+			kind === "command"
+				? getCommandSuggestionReplacement(tokenLabel)
+				: kind === "emote"
+					? resolveSuggestionEmote(tokenLabel, tokenLabel)?.unicode || tokenLabel
+					: tokenLabel;
+		const emote = kind === "emote" ? resolveSuggestionEmote(tokenLabel, replacement) : undefined;
+
+		items.push({
+			token: tokenLabel,
+			replacement,
+			kind,
+			description,
+			emote,
+		});
+
+		if (items.length >= 8) break;
+	}
+
+	return items;
+}
+
+function getNativeSuggestionItems(token: string): SuggestionItem[] {
+	const instance = getNativeAutocompleteInstance();
+	if (!instance) return [];
+
+	let matches: NativeAutocompleteResult[] = [];
+	try {
+		const result = instance.component.getMatches(token) as NativeAutocompleteResult[] | undefined;
+		if (Array.isArray(result)) {
+			matches = result;
+		}
+	} catch {
+		matches = [];
+	}
+
+	if (!matches.length) return [];
+
+	const items = [] as SuggestionItem[];
+	for (const match of matches.slice(0, 8)) {
+		const trayTarget = findNativeAutocompleteProp(match.element, "data-a-target");
+		const flattened = flattenNativeAutocompleteText(match.element).replace(/\s+/g, " ").trim();
+		const tokenLabel = trayTarget || match.replacement.trim() || flattened || token;
+		const description =
+			flattened && flattened !== tokenLabel
+				? flattened.startsWith(tokenLabel)
+					? flattened.slice(tokenLabel.length).trim()
+					: flattened
+				: "";
+		const emote = match.type === "emote" ? resolveSuggestionEmote(tokenLabel, match.replacement) : undefined;
+
+		items.push({
+			token: tokenLabel,
+			replacement: match.replacement,
+			kind: match.type === "command" ? "command" : match.type === "emote" ? "emote" : "user",
+			description,
+			emote,
+		});
+	}
+
+	return items;
+}
+
+function getCommandSuggestionItems(token: string): SuggestionItem[] {
+	const provider = getNativeCommandProvider();
+	if (!provider) return [];
+
+	const commandSearch = token.slice(1).trim().toLowerCase();
+	const commands = provider.props?.getCommands?.();
+	if (!Array.isArray(commands)) return [];
+
+	const test =
+		!commandSearch
+			? (_value: string) => true
+			: autocompleteMatchMode.value === 0
+			? (value: string) => value.startsWith(commandSearch)
+			: (value: string) => value.includes(commandSearch);
+
+	const items = [] as SuggestionItem[];
+	const seen = new Set<string>();
+
+	for (const command of commands as Twitch.ChatCommand[]) {
+		if (!command?.name || command.hidden) continue;
+
+		const normalizedName = command.name.toLowerCase();
+		if (!test(normalizedName)) continue;
+
+		const displayToken = `/${command.name}`;
+		const key = displayToken.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+
+		items.push({
+			token: displayToken,
+			replacement: `${displayToken} `,
+			kind: "command",
+			description: command.description || command.helpText || "",
+		});
+		if (items.length >= 8) break;
+	}
+
+	return items;
+}
+
+const suggestionItems = computed<SuggestionItem[]>(() => {
 	const { token, start, end } = getTokenAtCursor();
-	if (!isFocused.value || start === end || token.length < 2) return [] as SuggestionItem[];
+	if (!isFocused.value || start === end || token.length < 1) return [] as SuggestionItem[];
 
 	const isMentionToken = token.startsWith("@");
 	const isColonToken = token.startsWith(":");
+	const isCommandToken = token.startsWith("/");
 
 	if (isMentionToken) {
 		if (!shouldAutocompleteChatters.value) return [] as SuggestionItem[];
@@ -970,6 +1276,7 @@ const suggestionItems = computed(() => {
 			seen.add(key);
 			items.push({
 				token: tokenValue,
+				replacement: tokenValue,
 				kind: "user",
 			});
 			if (items.length >= 8) break;
@@ -978,33 +1285,41 @@ const suggestionItems = computed(() => {
 		return items;
 	}
 
+	if (isCommandToken) {
+		const trayItems = getNativeTraySuggestionItems(token);
+		if (trayItems.length) return trayItems;
+
+		const nativeItems = getNativeSuggestionItems(token);
+		if (nativeItems.length) return nativeItems;
+		return getCommandSuggestionItems(token);
+	}
+
+	if (token.length < 2) return [] as SuggestionItem[];
 	if (autocompleteMode.value === AUTOCOMPLETION_MODE.OFF) return [] as SuggestionItem[];
 	if (autocompleteMode.value === AUTOCOMPLETION_MODE.COLON && !isColonToken) return [] as SuggestionItem[];
+
+	if (isColonToken) {
+		const trayItems = getNativeTraySuggestionItems(token);
+		if (trayItems.length) return trayItems;
+
+		const nativeItems = getNativeSuggestionItems(token);
+		if (nativeItems.length) return nativeItems;
+	}
 
 	const normalized = (isColonToken ? token.slice(1) : token).toLowerCase();
 	if (normalized.length < 2) return [] as SuggestionItem[];
 
 	const items = [] as SuggestionItem[];
-	const seen = new Set<string>();
-	const test =
-		autocompleteMatchMode.value === 0
-			? (value: string) => value.startsWith(normalized)
-			: (value: string) => value.includes(normalized);
+	for (const match of findMatchingTokens(normalized, "colon", 8)) {
+		const emote = (match.item as SevenTV.ActiveEmote | undefined) ?? emotes.emojis[match.token];
+		if (!emote) continue;
 
-	for (const activeEmote of Object.values(emotes.active)) {
-		if (!activeEmote?.name) continue;
-		if (activeEmote.provider === "EMOJI" && !shouldAutocompleteEmoji.value) continue;
-		if (!test(activeEmote.name.toLowerCase())) continue;
-
-		const key = `emote:${activeEmote.provider}:${activeEmote.id}:${activeEmote.name}`;
-		if (seen.has(key)) continue;
-		seen.add(key);
 		items.push({
-			token: activeEmote.name,
+			token: match.token,
+			replacement: emote.provider === "EMOJI" ? (emote.unicode || match.token) : match.token,
 			kind: "emote",
-			emote: activeEmote,
+			emote,
 		});
-		if (items.length >= 8) break;
 	}
 
 	return items;
@@ -1250,7 +1565,7 @@ function appendToken(nextToken: string): void {
 }
 
 function applySuggestion(item: SuggestionItem): void {
-	replaceToken(item.token);
+	replaceToken(item.replacement);
 	suggestionIndex.value = 0;
 }
 
@@ -1442,7 +1757,7 @@ function onKeyDown(ev: KeyboardEvent): void {
 			return;
 		}
 
-		submit();
+		submit(undefined, ev);
 		return;
 	}
 
@@ -1462,10 +1777,35 @@ function createNonce(): string {
 	return `tverino:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function submit(explicitText?: string): void {
+function shouldKeepDraftAfterSubmit(explicitText?: string, trigger?: Event | SubmitModifierLike): boolean {
+	return !explicitText && !!trigger && "ctrlKey" in trigger && !!trigger.ctrlKey;
+}
+
+function finalizeSubmit(keepDraft: boolean): void {
+	closeNativeReplyTray();
+	if (!keepDraft) {
+		value.value = "";
+	}
+	suggestionIndex.value = 0;
+	clearTabCycle();
+
+	if (!keepDraft) return;
+
+	requestAnimationFrame(() => {
+		const input = inputRef.value;
+		if (!input) return;
+
+		input.focus();
+		const end = input.value.length;
+		input.setSelectionRange(end, end);
+	});
+}
+
+function submit(explicitText?: string, trigger?: Event | SubmitModifierLike): void {
 	const rawMessage = explicitText ?? value.value;
 	const message = rawMessage.trim();
 	if ((!message && !canSubmitEmptyNativeTray.value) || !identity.value) return;
+	const keepDraft = shouldKeepDraftAfterSubmit(explicitText, trigger);
 	const replyMetadata = activeReply.value
 		? {
 				parentDeleted: activeReply.value.deleted,
@@ -1491,10 +1831,7 @@ function submit(explicitText?: string): void {
 		if (message) {
 			pushMessageHistory(message);
 		}
-		closeNativeReplyTray();
-		value.value = "";
-		suggestionIndex.value = 0;
-		clearTabCycle();
+		finalizeSubmit(keepDraft);
 		return;
 	}
 
@@ -1568,10 +1905,7 @@ function submit(explicitText?: string): void {
 	recentSentEmotes.recordMessage(props.ctx.id, message, emotes.active);
 	sendChatMessage(props.ctx.id, props.ctx.username, message, nonce, replyMetadata);
 	pushMessageHistory(message);
-	closeNativeReplyTray();
-	value.value = "";
-	suggestionIndex.value = 0;
-	clearTabCycle();
+	finalizeSubmit(keepDraft);
 }
 
 function onSendResult(ev: Event): void {
@@ -1620,6 +1954,12 @@ function onRecentClick(ev: MouseEvent, emote: SevenTV.ActiveEmote): void {
 	}
 
 	submit(token);
+}
+
+function formatUsageCount(count: number): string {
+	if (count < 1000) return String(count);
+	if (count < 10000) return `${(count / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+	return `${Math.floor(count / 1000)}k`;
 }
 
 function toggleEmoteMenu(): void {
@@ -1904,6 +2244,12 @@ onUnmounted(() => {
 	}
 }
 
+.seventv-tverino-recents-stack {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+}
+
 .seventv-tverino-recents {
 	display: flex;
 	gap: 0.35rem;
@@ -1927,6 +2273,7 @@ onUnmounted(() => {
 }
 
 .seventv-tverino-recents-item {
+	position: relative;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -1947,6 +2294,44 @@ onUnmounted(() => {
 		transform: translateY(-1px);
 		background: rgb(255 255 255 / 0.08);
 	}
+}
+
+.seventv-tverino-recents-count-pill {
+	position: absolute;
+	top: 0.18rem;
+	left: 0.18rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.1rem;
+	height: 1.1rem;
+	padding: 0 0.28rem;
+	border-radius: 999px;
+	background: #fff;
+	color: rgb(14 14 18 / 0.98);
+	font-size: 0.74rem;
+	font-weight: 800;
+	line-height: 1;
+	box-shadow: 0 0.22rem 0.65rem rgb(0 0 0 / 0.18);
+	pointer-events: none;
+	opacity: 0.98;
+	transform: translateY(0) scale(1);
+	transform-origin: top left;
+	transition:
+		opacity 150ms ease,
+		transform 150ms ease;
+}
+
+.seventv-tverino-recents-count-pill.most-used {
+	box-shadow:
+		0 0.28rem 0.8rem rgb(0 0 0 / 0.24),
+		0 0.08rem 0.22rem rgb(0 0 0 / 0.12);
+}
+
+.seventv-tverino-recents-item:hover .seventv-tverino-recents-count-pill,
+.seventv-tverino-recents-item:focus-visible .seventv-tverino-recents-count-pill {
+	opacity: 0;
+	transform: translateY(-0.2rem) scale(0.82);
 }
 
 .seventv-tverino-recents-empty {
@@ -2096,10 +2481,16 @@ onUnmounted(() => {
 	}
 
 	&.claiming {
+		border-color: rgb(255 255 255 / 0.16);
+		background: rgb(255 255 255 / 0.08);
+		color: #fff;
 		opacity: 0.8;
 	}
 
 	&.claimed {
+		border-color: rgb(255 255 255 / 0.16);
+		background: rgb(255 255 255 / 0.08);
+		color: #fff;
 		animation: tverino-claim-button-pop 520ms cubic-bezier(0.22, 1, 0.36, 1);
 	}
 }
@@ -2145,15 +2536,17 @@ onUnmounted(() => {
 	right: 0.15rem;
 	padding: 0.14rem 0.42rem;
 	border-radius: 999px;
-	background: rgb(192 194 197 / 0.96);
-	color: rgb(14 14 16 / 0.94);
+	background: #fff;
+	color: rgb(26 26 30 / 0.96);
 	font-size: 1.05rem;
 	font-weight: 800;
 	letter-spacing: 0.01em;
 	opacity: 0;
 	transform: translate3d(0, 0.7rem, 0) scale(0.92);
 	pointer-events: none;
-	box-shadow: 0 0.4rem 1rem rgb(0 0 0 / 0.22);
+	box-shadow:
+		0 0 0 0.11rem rgb(255 255 255 / 1),
+		0 0.38rem 0.95rem rgb(0 0 0 / 0.15);
 
 	&.active {
 		animation: tverino-points-gain 1500ms cubic-bezier(0.18, 0.84, 0.28, 1);

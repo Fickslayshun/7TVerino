@@ -1,6 +1,6 @@
 <template />
 <script setup lang="ts">
-import { onUnmounted, ref, toRef } from "vue";
+import { onUnmounted, ref, toRef, watch } from "vue";
 import { useStore } from "@/store/main";
 import { ChatMessage } from "@/common/chat/ChatMessage";
 import { db } from "@/db/idb";
@@ -18,6 +18,7 @@ const channelID = toRef(ctx, "id");
 const messages = useChatMessages(ctx);
 const emotes = useChatEmotes(ctx);
 const { providers } = useStore();
+const pendingActiveSets = ref<SevenTV.EmoteSet[]>([]);
 
 // query the channel's emote set bindings
 const channelSets = useLiveQuery(
@@ -26,12 +27,79 @@ const channelSets = useLiveQuery(
 			.where("id")
 			.equals(ctx.id)
 			.first()
-			.then((c) => c?.set_ids ?? []),
+			.then((c) => [...(c?.set_ids ?? [])]),
 	undefined,
 	{
 		reactives: [channelID],
 	},
 );
+
+function hasActiveNonEmojiEmotes(): boolean {
+	return Object.values(emotes.active).some((emote) => emote?.provider && emote.provider !== "EMOJI");
+}
+
+function shouldDelayActiveEmoteReset(nextSets: SevenTV.EmoteSet[]): boolean {
+	if (ctx.platform !== "TWITCH" || !ctx.id || ctx.setsFetched) return false;
+	if ((channelSets.value?.length ?? 0) > 0) return false;
+	if (!hasActiveNonEmojiEmotes()) return false;
+
+	// Preserve the existing active map until Twitch finishes fetching the new channel's sets.
+	// Without this, route changes can transiently clear 7TV/FFZ/BTTV emotes and leave recents blank.
+	return nextSets.every((set) => set.provider === "EMOJI" || set.scope === "GLOBAL");
+}
+
+function applyActiveEmoteSets(sets: SevenTV.EmoteSet[] | null | undefined): void {
+	const nextSets = sets ?? [];
+	const nextSetIds = new Set(nextSets.map((set) => set.id));
+
+	for (const provider of ["7TV", "FFZ", "BTTV"] as const) {
+		for (const setID in emotes.providers[provider]) {
+			if (!nextSetIds.has(setID)) {
+				delete emotes.providers[provider][setID];
+			}
+		}
+	}
+
+	for (const setID in emotes.sets) {
+		if (!nextSetIds.has(setID)) {
+			delete emotes.sets[setID];
+		}
+	}
+
+	for (const set of nextSets) {
+		if (!set.provider || !providers.has(set.provider)) continue;
+		const provider = set.provider as SevenTV.Provider;
+
+		if (!emotes.providers[provider]) emotes.providers[provider] = {};
+		emotes.providers[provider][set.id] = set;
+		emotes.sets[set.id] = set;
+	}
+
+	const nextActive = {} as Record<SevenTV.ObjectID, SevenTV.ActiveEmote>;
+	for (const set of nextSets) {
+		for (const emote of set.emotes) {
+			if (!emote) continue;
+			nextActive[emote.name] = emote;
+		}
+	}
+
+	for (const emoji of Object.values(emotes.emojis)) {
+		if (!emoji?.unicode) continue;
+		nextActive[emoji.unicode] = emoji;
+	}
+
+	for (const name in emotes.active) {
+		const active = emotes.active[name];
+		if (active?.provider === "EMOJI") continue;
+		if (!(name in nextActive)) {
+			delete emotes.active[name];
+		}
+	}
+
+	for (const [name, emote] of Object.entries(nextActive)) {
+		emotes.active[name] = emote;
+	}
+}
 
 // query the active emote sets
 useLiveQuery(
@@ -44,58 +112,22 @@ useLiveQuery(
 			.sortBy("priority"),
 	(sets) => {
 		const nextSets = sets ?? [];
-		const nextSetIds = new Set(nextSets.map((set) => set.id));
+		pendingActiveSets.value = nextSets;
 
-		for (const provider of ["7TV", "FFZ", "BTTV"] as const) {
-			for (const setID in emotes.providers[provider]) {
-				if (!nextSetIds.has(setID)) {
-					delete emotes.providers[provider][setID];
-				}
-			}
-		}
+		if (shouldDelayActiveEmoteReset(nextSets)) return;
 
-		for (const setID in emotes.sets) {
-			if (!nextSetIds.has(setID)) {
-				delete emotes.sets[setID];
-			}
-		}
-
-		for (const set of nextSets) {
-			if (!set.provider || !providers.has(set.provider)) continue;
-			const provider = set.provider as SevenTV.Provider;
-
-			if (!emotes.providers[provider]) emotes.providers[provider] = {};
-			emotes.providers[provider][set.id] = set;
-			emotes.sets[set.id] = set;
-		}
-
-		const nextActive = {} as Record<SevenTV.ObjectID, SevenTV.ActiveEmote>;
-		for (const set of nextSets) {
-			for (const emote of set.emotes) {
-				if (!emote) continue;
-				nextActive[emote.name] = emote;
-			}
-		}
-
-		for (const emoji of Object.values(emotes.emojis)) {
-			if (!emoji?.unicode) continue;
-			nextActive[emoji.unicode] = emoji;
-		}
-
-		for (const name in emotes.active) {
-			const active = emotes.active[name];
-			if (active?.provider === "EMOJI") continue;
-			if (!(name in nextActive)) {
-				delete emotes.active[name];
-			}
-		}
-
-		for (const [name, emote] of Object.entries(nextActive)) {
-			emotes.active[name] = emote;
-		}
+		applyActiveEmoteSets(nextSets);
 	},
 	{
 		reactives: [channelSets],
+	},
+);
+
+watch(
+	() => ctx.setsFetched,
+	(setsFetched) => {
+		if (!setsFetched) return;
+		applyActiveEmoteSets(pendingActiveSets.value);
 	},
 );
 

@@ -1,5 +1,13 @@
 # Patch Notes
 
+22/03/2026 - Standard update
+- Added most used emote menu and ability to combine with recent
+- Removed raider highlights from settings
+- Removed quick send from settings and enabled it by default
+- Updated claim channel point visuals
+- Fixed bugs that occurred while having multiple streams open
+- Improved stability and fallbacks for 7TVerino tabs
+
 20/03/2026 - Updates and refinements
 - Improved performance and readiness
 - Added search bar to identity badge menu

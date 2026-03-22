@@ -11,7 +11,6 @@ const ctx = useChannelContext();
 const messages = useChatMessages(ctx);
 const showMonitoredLowTrustUser = useConfig<boolean>("highlights.basic.monitored_low_trust_user");
 const showReturningChatter = useConfig<boolean>("highlights.basic.returning_chatter");
-const showRaider = useConfig<boolean>("highlights.basic.raider");
 
 const highlightOrder = {
 	returning_chatter: 0,
@@ -152,8 +151,7 @@ async function onChatHighlight(msg: EventDetail.ChatHighlight) {
 	for (const highlight of highlights) {
 		switch (highlight.type) {
 			case "raider":
-				if (showRaider.value)
-					message.setHighlight("#6dd126", message.first ? "First Time Chat From Raider" : "Raider");
+				message.setHighlight("#6dd126", message.first ? "First Time Chat From Raider" : "Raider");
 				break;
 			case "returning_chatter":
 				if (showReturningChatter.value) message.setHighlight("#3296e6", "Returning Chatter");

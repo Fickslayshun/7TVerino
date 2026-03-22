@@ -1,20 +1,57 @@
 <template>
 	<Teleport v-if="mounted" :to="mountEl">
-		<div v-if="isEnabled" class="seventv-recent-emote-bar" :class="{ empty: !resolvedEntries.length }">
-			<template v-if="resolvedEntries.length">
-				<button
-					v-for="emote of resolvedEntries"
-					:key="`${emote.provider}:${emote.id}`"
-					type="button"
-					class="seventv-recent-emote-bar-item"
-					:title="`${emote.name} - Click to send. Ctrl+Click or Alt+Click to insert.`"
-					@click="handleEmoteClick($event, emote)"
-				>
-					<Emote :emote="emote" :clickable="false" :show-tooltip="false" :scale="0.74" />
-				</button>
-			</template>
-			<div v-else class="seventv-recent-emote-bar-empty">
-				Recent emotes appear here after you send them. Ctrl+Click or Alt+Click inserts.
+		<div v-if="isEnabled" class="seventv-recent-emote-bar-stack">
+			<div
+				v-if="showMostUsedBar"
+				class="seventv-recent-emote-bar"
+				:class="{ empty: !resolvedMostUsedEntries.length, 'most-used': true }"
+			>
+				<template v-if="resolvedMostUsedEntries.length">
+					<button
+						v-for="entry of resolvedMostUsedEntries"
+						:key="entry.key"
+						type="button"
+						class="seventv-recent-emote-bar-item"
+						:title="entry.title"
+						@click="handleEmoteClick($event, entry.emote)"
+					>
+						<Emote :emote="entry.emote" :clickable="false" :show-tooltip="false" :scale="0.74" />
+						<span
+							v-if="entry.count !== null"
+							class="seventv-recent-emote-bar-count-pill most-used"
+						>
+							{{ formatUsageCount(entry.count) }}
+						</span>
+					</button>
+				</template>
+				<div v-else class="seventv-recent-emote-bar-empty">
+					{{ mostUsedEmptyStateText }}
+				</div>
+			</div>
+
+			<div
+				v-if="showRecentBar"
+				class="seventv-recent-emote-bar"
+				:class="{ empty: !resolvedRecentEntries.length }"
+			>
+				<template v-if="resolvedRecentEntries.length">
+					<button
+						v-for="entry of resolvedRecentEntries"
+						:key="entry.key"
+						type="button"
+						class="seventv-recent-emote-bar-item"
+						:title="entry.title"
+						@click="handleEmoteClick($event, entry.emote)"
+					>
+						<Emote :emote="entry.emote" :clickable="false" :show-tooltip="false" :scale="0.74" />
+						<span v-if="entry.count !== null" class="seventv-recent-emote-bar-count-pill">
+							{{ formatUsageCount(entry.count) }}
+						</span>
+					</button>
+				</template>
+				<div v-else class="seventv-recent-emote-bar-empty">
+					{{ recentEmptyStateText }}
+				</div>
 			</div>
 		</div>
 	</Teleport>
@@ -27,7 +64,11 @@ import { HookedInstance } from "@/common/ReactHooks";
 import { useChannelContext } from "@/composable/channel/useChannelContext";
 import { useChatEmotes } from "@/composable/chat/useChatEmotes";
 import { useChatMessages } from "@/composable/chat/useChatMessages";
-import { useRecentSentEmotes } from "@/composable/chat/useRecentSentEmotes";
+import {
+	type RecentSentEmoteEntry,
+	type RecentSentEmoteUsageEntry,
+	useRecentSentEmotes,
+} from "@/composable/chat/useRecentSentEmotes";
 import Emote from "@/app/chat/Emote.vue";
 
 const props = defineProps<{
@@ -42,30 +83,28 @@ const mounted = ref(false);
 const textAreaEl = ref<HTMLElement | null>(null);
 const resizeObserver = new ResizeObserver(() => syncTextareaLayout());
 
-const isEnabled = computed(() => recentSentEmotes.enabled.value);
+const isEnabled = computed(() => recentSentEmotes.isEnabled.value);
+const showRecentBar = computed(() => recentSentEmotes.showRecentBar.value);
+const showMostUsedBar = computed(() => recentSentEmotes.showMostUsedBar.value);
 const channelID = computed(() => getRecentBarChannelID(props.instance.component));
 const channelCtx = useChannelContext(channelID.value, true);
 const emotes = useChatEmotes(channelCtx);
 const messages = useChatMessages(channelCtx);
 
-const resolvedEntries = computed(() => {
-	const entries = recentSentEmotes.getEntries(channelID.value);
+const resolvedMostUsedEntries = computed(() => resolveDisplayEntries(recentSentEmotes.getMostUsedEntries(channelID.value)));
+const resolvedRecentEntries = computed(() => {
+	const entries = resolveDisplayEntries(recentSentEmotes.getEntries(channelID.value));
+	if (!(showRecentBar.value && showMostUsedBar.value)) return entries;
 
-	return entries
-		.filter((entry) => recentSentEmotes.scopeAllows(entry.provider))
-		.map((entry) => {
-			return (
-				emotes.find(
-					(ae) =>
-						ae.id === entry.id &&
-						ae.provider === entry.provider &&
-						(ae.unicode ?? ae.name) === (entry.name || ae.name),
-					true,
-				) ?? emotes.find((ae) => ae.id === entry.id && ae.provider === entry.provider, true)
-			);
-		})
-		.filter((ae): ae is SevenTV.ActiveEmote => !!ae);
+	const mostUsedKeys = new Set(resolvedMostUsedEntries.value.map((entry) => entry.key));
+	return entries.filter((entry) => !mostUsedKeys.has(entry.key));
 });
+const recentEmptyStateText = computed(
+	() => "Recent emotes appear here after you send them. Ctrl+Click or Alt+Click inserts.",
+);
+const mostUsedEmptyStateText = computed(
+	() => "Most-used emotes in this channel appear here after you send them. Ctrl+Click or Alt+Click inserts.",
+);
 
 watchEffect(() => {
 	const root = props.instance.domNodes.root;
@@ -121,6 +160,7 @@ function appendEmoteToInput(emote: SevenTV.ActiveEmote): void {
 
 function sendEmote(emote: SevenTV.ActiveEmote): void {
 	const token = emote.unicode ?? emote.name;
+	recentSentEmotes.recordMessage(channelID.value, token, emotes.active);
 	messages.sendMessage(token);
 	props.instance.component.focus();
 }
@@ -135,6 +175,57 @@ function handleEmoteClick(ev: MouseEvent, emote: SevenTV.ActiveEmote): void {
 	}
 
 	sendEmote(emote);
+}
+
+interface ResolvedRecentBarEntry {
+	key: string;
+	emote: SevenTV.ActiveEmote;
+	count: number | null;
+	title: string;
+}
+
+function resolveDisplayEntries(entries: (RecentSentEmoteEntry | RecentSentEmoteUsageEntry)[]): ResolvedRecentBarEntry[] {
+	return entries
+		.filter((entry) => recentSentEmotes.scopeAllows(entry.provider))
+		.map((entry) => resolveDisplayEntry(entry))
+		.filter((entry): entry is ResolvedRecentBarEntry => !!entry);
+}
+
+function resolveDisplayEntry(entry: RecentSentEmoteEntry | RecentSentEmoteUsageEntry): ResolvedRecentBarEntry | null {
+	const resolvedEmote =
+		emotes.find(
+			(ae) =>
+				ae.id === entry.id &&
+				ae.provider === entry.provider &&
+				(ae.unicode ?? ae.name) === (entry.name || ae.name),
+			true,
+		) ??
+		emotes.find((ae) => ae.id === entry.id && ae.provider === entry.provider, true) ??
+		emotes.find(
+			(ae) =>
+				ae.id === entry.id &&
+				ae.provider === entry.provider &&
+				(ae.unicode ?? ae.name) === (entry.name || ae.name),
+		) ??
+		emotes.find((ae) => ae.id === entry.id && ae.provider === entry.provider);
+	if (!resolvedEmote) return null;
+
+	const count = "count" in entry ? entry.count : null;
+	return {
+		key: `${entry.provider}:${entry.id}`,
+		emote: resolvedEmote,
+		count,
+		title:
+			count === null
+				? `${entry.name} - Click to send. Ctrl+Click or Alt+Click to insert.`
+				: `${entry.name} - Sent ${count} ${count === 1 ? "time" : "times"} in this channel. Click to send. Ctrl+Click or Alt+Click to insert.`,
+	};
+}
+
+function formatUsageCount(count: number): string {
+	if (count < 1000) return String(count);
+	if (count < 10000) return `${(count / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+	return `${Math.floor(count / 1000)}k`;
 }
 
 onUnmounted(() => {
@@ -162,6 +253,13 @@ function syncTextareaLayout(): void {
 </script>
 
 <style scoped lang="scss">
+.seventv-recent-emote-bar-stack {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	margin-bottom: 0.25rem;
+}
+
 .seventv-recent-emote-bar {
 	display: flex;
 	flex-wrap: nowrap;
@@ -169,7 +267,6 @@ function syncTextareaLayout(): void {
 	align-items: center;
 	width: 100%;
 	padding: 0.4rem 0.45rem 0.35rem;
-	margin-bottom: 0.25rem;
 	border-bottom: 0.1rem solid rgb(255 255 255 / 0.14);
 	background: transparent;
 	box-sizing: border-box;
@@ -187,6 +284,7 @@ function syncTextareaLayout(): void {
 }
 
 .seventv-recent-emote-bar-item {
+	position: relative;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -207,6 +305,44 @@ function syncTextareaLayout(): void {
 		background: rgb(255 255 255 / 0.08);
 		transform: translateY(-1px);
 	}
+}
+
+.seventv-recent-emote-bar-count-pill {
+	position: absolute;
+	top: 0.18rem;
+	left: 0.18rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 1.1rem;
+	height: 1.1rem;
+	padding: 0 0.28rem;
+	border-radius: 999px;
+	background: #fff;
+	color: rgb(14 14 18 / 0.98);
+	font-size: 0.74rem;
+	font-weight: 800;
+	line-height: 1;
+	box-shadow: 0 0.22rem 0.65rem rgb(0 0 0 / 0.18);
+	pointer-events: none;
+	opacity: 0.98;
+	transform: translateY(0) scale(1);
+	transform-origin: top left;
+	transition:
+		opacity 150ms ease,
+		transform 150ms ease;
+}
+
+.seventv-recent-emote-bar-count-pill.most-used {
+	box-shadow:
+		0 0.28rem 0.8rem rgb(0 0 0 / 0.24),
+		0 0.08rem 0.22rem rgb(0 0 0 / 0.12);
+}
+
+.seventv-recent-emote-bar-item:hover .seventv-recent-emote-bar-count-pill,
+.seventv-recent-emote-bar-item:focus-visible .seventv-recent-emote-bar-count-pill {
+	opacity: 0;
+	transform: translateY(-0.2rem) scale(0.82);
 }
 
 .seventv-recent-emote-bar-empty {

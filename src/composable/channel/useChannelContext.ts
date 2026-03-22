@@ -13,6 +13,7 @@ export class ChannelContext implements CurrentChannel {
 	id = "";
 	username = "";
 	displayName = "";
+	registered = true;
 	remote = false;
 	user?: SevenTV.User;
 	loaded = false;
@@ -71,8 +72,12 @@ export class ChannelContext implements CurrentChannel {
 		this.setsFetched = false;
 		this.user = undefined;
 
-		m.set(channel.id, this);
-		m.delete(oldID);
+		if (oldID && m.get(oldID) === this) {
+			m.delete(oldID);
+		}
+		if (this.registered) {
+			m.set(channel.id, this);
+		}
 
 		void this.fetch();
 		return true;
@@ -105,8 +110,10 @@ export class ChannelContext implements CurrentChannel {
 				return true;
 			}),
 			target.listenUntil("channel_sets_fetched", (ev) => {
+				if (this.id !== ev.detail.id) return false;
+
 				this.setsFetched = true;
-				return this.id === ev.detail.id;
+				return true;
 			}),
 		])
 			.then(() => void 0)
@@ -150,8 +157,21 @@ function initializeChannelContext(ctx: ChannelContext): ChannelContext {
 	return ctx;
 }
 
+export function createChannelContext(channel?: CurrentChannel, options?: { register?: boolean }): ChannelContext {
+	const ctx = reactive<ChannelContext>(new ChannelContext());
+	ctx.registered = options?.register ?? true;
+
+	const initializedCtx = initializeChannelContext(ctx);
+	if (channel) {
+		initializedCtx.setCurrentChannel(channel);
+	}
+
+	return initializedCtx;
+}
+
 export function resolveChannelContext(channelID?: string): ChannelContext {
-	const ctx = initializeChannelContext((channelID ? m.get(channelID) : null) ?? reactive<ChannelContext>(new ChannelContext()));
+	const ctx = initializeChannelContext((channelID ? m.get(channelID) : null) ?? createChannelContext());
+	ctx.registered = true;
 
 	if (channelID) {
 		if (ctx.id !== channelID) ctx.setCurrentChannel({ id: channelID, username: "", displayName: "", active: true });

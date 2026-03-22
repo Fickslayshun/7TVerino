@@ -68,6 +68,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { ChannelContext } from "@/composable/channel/useChannelContext";
+import type { RecentEmoteBarMode } from "@/composable/chat/useRecentSentEmotes";
 import { useConfig } from "@/composable/useSettings";
 import UiFloating from "@/ui/UiFloating.vue";
 import { offset, shift } from "@floating-ui/dom";
@@ -112,7 +113,7 @@ const emit = defineEmits<{
 const middleware = [offset({ mainAxis: 10 }), shift({ padding: 8 })];
 const showModifiers = useConfig<boolean>("chat.show_emote_modifiers", false);
 const compactTooltips = useConfig<boolean>("ui.compact_tooltips", false);
-const recentEmoteBar = useConfig<boolean>("chat.recent_emote_bar", false);
+const recentEmoteMode = useConfig<RecentEmoteBarMode>("chat.recent_emote_bar.mode", "recent");
 const recentEmoteScope = useConfig<RecentEmoteScope>("chat.recent_emote_bar.scope", "7tv");
 const deletedMessages = useConfig<DeletedMessageMode>("chat.deleted_messages", 1);
 const displaySeconds = useConfig<boolean>("chat.timestamp_with_seconds", false);
@@ -168,17 +169,21 @@ const moderatorStateRows = computed<ModeratorStateRow[]>(() => {
 const settingsRows = computed<SettingsRow[]>(() => {
 	const rows = [
 		{
-			id: "recent-emote-bar",
-			label: "Recent Emote Bar",
-			kind: "toggle",
-			enabled: recentEmoteBar.value,
+			id: "recent-emote-mode",
+			label: "Emote Menu (Recent/Most Used)",
+			kind: "value",
+			value: formatRecentEmoteMode(recentEmoteMode.value),
 			action: () => {
-				recentEmoteBar.value = !recentEmoteBar.value;
+				recentEmoteMode.value = cycleValue<RecentEmoteBarMode>(recentEmoteMode.value, [
+					"recent",
+					"most_used",
+					"combine",
+				]);
 			},
 		},
 		{
 			id: "recent-emote-scope",
-			label: "Recent Emote Scope",
+			label: "Emote Menu Scope",
 			kind: "value",
 			value: formatRecentEmoteScope(recentEmoteScope.value),
 			action: () => {
@@ -241,7 +246,7 @@ const settingsRows = computed<SettingsRow[]>(() => {
 		},
 	] satisfies SettingsRow[];
 
-	return rows.filter((row) => row.id !== "recent-emote-scope" || recentEmoteBar.value);
+	return rows;
 });
 
 function cycleValue<T>(value: T, values: readonly T[]): T {
@@ -259,6 +264,17 @@ function formatDeletedMessageDisplay(value: DeletedMessageMode): string {
 			return "Keep";
 		default:
 			return "Dimmed";
+	}
+}
+
+function formatRecentEmoteMode(value: RecentEmoteBarMode): string {
+	switch (value) {
+		case "most_used":
+			return "Most Used";
+		case "combine":
+			return "Both";
+		default:
+			return "Recent";
 	}
 }
 

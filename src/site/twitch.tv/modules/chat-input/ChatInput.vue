@@ -116,7 +116,6 @@ const autocompletionMode = useConfig("chat_input.autocomplete.colon");
 const shouldColonCompleteEmoji = useConfig("chat_input.autocomplete.colon.emoji");
 const shouldAutocompleteChatters = useConfig<boolean>("chat_input.autocomplete.chatters");
 const shouldRenderAutocompleteCarousel = useConfig("chat_input.autocomplete.carousel");
-const mayUseControlEnter = useConfig("chat_input.spam.rapid_fire_send");
 const colonCompletionMode = useConfig<number>("chat_input.autocomplete.colon.mode");
 const tabCompletionMode = useConfig<number>("chat_input.autocomplete.carousel.mode");
 
@@ -982,7 +981,7 @@ defineFunctionHook(
 			pushHistory();
 
 			// Put the previous input back in if the user was pressing control
-			if (mayUseControlEnter.value && isCtrl.value) {
+			if (isCtrl.value) {
 				setTimeout(() => useHistory(true), 0);
 			}
 		}

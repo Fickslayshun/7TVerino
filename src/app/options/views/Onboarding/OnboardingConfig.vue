@@ -155,7 +155,6 @@ const questions = ref<Question[]>([
 		configEffect: [
 			"general.autoclaim.channel_points",
 			"chat_input.spam.bypass_duplicate",
-			"chat_input.spam.rapid_fire_send",
 		],
 		title: t("onboarding.config_question.chatter_spam"),
 		if: ["active-chatter"],

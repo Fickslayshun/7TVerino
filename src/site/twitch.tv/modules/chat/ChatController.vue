@@ -74,7 +74,7 @@ import {
 	formatTimeoutNotice,
 	parseTimeoutDuration,
 } from "@/common/chat/timeoutPresets";
-import { ChannelContext, ChannelRole, resolveChannelContext, useChannelContext } from "@/composable/channel/useChannelContext";
+import { ChannelContext, ChannelRole, useChannelContext } from "@/composable/channel/useChannelContext";
 import { useChatEmotes } from "@/composable/chat/useChatEmotes";
 import { useChatMessageProcessor } from "@/composable/chat/useChatMessageProcessor";
 import { useChatMessages } from "@/composable/chat/useChatMessages";
@@ -93,6 +93,7 @@ import ChatPubSub from "./ChatPubSub.vue";
 import TVerinoChatShell from "./TVerinoChatShell.vue";
 import ChatTray from "./components/tray/ChatTray.vue";
 import { getTVerinoSelfMessageState } from "./tverinoPendingMessage";
+import { resolveTVerinoRemoteContext } from "./tverinoRemoteContexts";
 import { setTwitchHelixAuth } from "./twitchHelixAuth";
 import { useTVerinoChatTransport } from "./useTVerinoChatTransport";
 import ChatData from "@/app/chat/ChatData.vue";
@@ -1086,19 +1087,21 @@ definePropertyHook(controller.value.component, "props", {
 				) {
 					const nonce = `tverino:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 					const pending = createTVerinoLocalMessage(activeTarget, nextMessage, nonce);
-					const activeTargetCtx = resolveChannelContext(activeTarget.id);
-					activeTargetCtx.setCurrentChannel({
-						id: activeTarget.id,
-						username: activeTarget.login,
-						displayName: activeTarget.displayName,
-						active: true,
-					});
-					const activeTargetEmotes = useChatEmotes(activeTargetCtx);
+					const activeTargetCtx = resolveTVerinoRemoteContext(activeTarget.id);
+					if (activeTargetCtx) {
+						activeTargetCtx.setCurrentChannel({
+							id: activeTarget.id,
+							username: activeTarget.login,
+							displayName: activeTarget.displayName,
+							active: true,
+						});
+					}
+					const activeTargetEmotes = activeTargetCtx ? useChatEmotes(activeTargetCtx) : null;
 					if (pending) {
 						emitTVerinoLocalMessage(activeTarget.id, pending);
 					}
 
-					recentSentEmotes.recordMessage(activeTarget.id, nextMessage, activeTargetEmotes.active);
+					recentSentEmotes.recordMessage(activeTarget.id, nextMessage, activeTargetEmotes?.active ?? {});
 					sendTVerinoChatMessage(activeTarget.id, activeTarget.login, nextMessage, nonce);
 					return Promise.resolve(undefined);
 				}
@@ -1256,8 +1259,6 @@ watch(
 		didApplyHistoricalBuffer.value = false;
 		messages.clear();
 		scroller.unpause();
-
-		nextTick(emotes.reset);
 	},
 	{ immediate: true },
 );
