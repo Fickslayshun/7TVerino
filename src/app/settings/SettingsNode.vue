@@ -3,42 +3,82 @@
 		:data-key="node.key"
 		class="seventv-settings-node"
 		:disabled="node.disabledIf?.()"
+		:collapsible="isCollapsible"
 		:grid-mode="node.custom?.gridMode"
 		@mouseover="onHover"
 	>
-		<div class="label">
-			<div class="title" :class="{ unseen }">
-				{{ te(node.label) ? t(node.label) : node.label }}
-				<WarningIcon
-					v-if="node.warningTooltip"
-					v-tooltip:top="te(node.warningTooltip) ? t(node.warningTooltip) : node.warningTooltip"
-					class="warning-icon"
-				/>
-				<CloseIcon
-					v-if="!!standard[node.type] && currentSetting !== node.defaultValue"
-					class="reset-default"
-					@click="resetSetting"
-				/>
+		<div
+			v-if="isCollapsible"
+			class="seventv-settings-node-header"
+			role="button"
+			tabindex="0"
+			:aria-expanded="isExpanded ? 'true' : 'false'"
+			@click="toggleExpanded"
+			@keydown.enter.prevent="toggleExpanded"
+			@keydown.space.prevent="toggleExpanded"
+		>
+			<div class="label">
+				<div class="title" :class="{ unseen }">
+					{{ te(node.label) ? t(node.label) : node.label }}
+					<WarningIcon
+						v-if="node.warningTooltip"
+						v-tooltip:top="te(node.warningTooltip) ? t(node.warningTooltip) : node.warningTooltip"
+						class="warning-icon"
+					/>
+					<CloseIcon
+						v-if="!!standard[node.type] && currentSetting !== node.defaultValue"
+						class="reset-default"
+						@click.stop="resetSetting"
+					/>
+				</div>
+				<div v-if="node.hint" class="subtitle">
+					{{ te(node.hint) ? t(node.hint) : node.hint }}
+				</div>
 			</div>
-			<div v-if="node.hint" class="subtitle">
-				{{ te(node.hint) ? t(node.hint) : node.hint }}
+			<div class="seventv-settings-node-control">
+				<ChevronIcon class="expand-toggle-chevron" :direction="isExpanded ? 'up' : 'down'" />
 			</div>
 		</div>
-		<div v-if="node.custom && node.custom.gridMode === 'new-row'" class="content">
+		<template v-else>
+			<div class="label">
+				<div class="title" :class="{ unseen }">
+					{{ te(node.label) ? t(node.label) : node.label }}
+					<WarningIcon
+						v-if="node.warningTooltip"
+						v-tooltip:top="te(node.warningTooltip) ? t(node.warningTooltip) : node.warningTooltip"
+						class="warning-icon"
+					/>
+					<CloseIcon
+						v-if="!!standard[node.type] && currentSetting !== node.defaultValue"
+						class="reset-default"
+						@click.stop="resetSetting"
+					/>
+				</div>
+				<div v-if="node.hint" class="subtitle">
+					{{ te(node.hint) ? t(node.hint) : node.hint }}
+				</div>
+			</div>
+		</template>
+		<div
+			v-if="node.custom && node.custom.gridMode === 'new-row' && (!node.custom.collapsible || isExpanded)"
+			class="content"
+		>
 			<component :is="node.custom.component" />
 		</div>
-		<div v-else class="seventv-settings-node-control">
+		<div v-else-if="node.custom?.gridMode !== 'new-row'" class="seventv-settings-node-control">
 			<component :is="com" :node="node" />
 		</div>
 	</div>
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useTimeoutFn } from "@vueuse/shared";
 import { log } from "@/common/Logger";
 import { db } from "@/db/idb";
 import { useConfig } from "@/composable/useSettings";
+import ChevronIcon from "@/assets/svg/icons/ChevronIcon.vue";
 import CloseIcon from "@/assets/svg/icons/CloseIcon.vue";
 import WarningIcon from "@/assets/svg/icons/WarningIcon.vue";
 import FormCheckbox from "@/app/settings/control/FormCheckbox.vue";
@@ -59,10 +99,17 @@ const emit = defineEmits<{
 }>();
 
 const { t, te } = useI18n();
+const isExpanded = ref(props.node.custom?.defaultExpanded ?? false);
+const isCollapsible = props.node.custom?.gridMode === "new-row" && !!props.node.custom?.collapsible;
 
 function onHover(): void {
 	if (!props.unseen) return;
 	useTimeoutFn(() => emit("seen"), 500);
+}
+
+function toggleExpanded(): void {
+	if (!isCollapsible) return;
+	isExpanded.value = !isExpanded.value;
 }
 
 const currentSetting = useConfig<SevenTV.SettingType>(props.node.key);
@@ -103,6 +150,17 @@ const com = standard[props.node.type] ?? props.node.custom?.component;
 	padding: 0.25rem 0;
 	transition: background-color 90ms ease-out;
 
+	& + & {
+		border-top: 0.01rem solid rgb(0 0 0 / 0.34);
+	}
+
+	&[collapsible="true"] {
+		grid-template-columns: 1fr;
+		grid-template-areas:
+			"header"
+			"content";
+	}
+
 	&:hover {
 		background-color: hsla(0deg, 0%, 0%, 10%);
 	}
@@ -110,6 +168,20 @@ const com = standard[props.node.type] ?? props.node.custom?.component;
 	&[disabled="true"] {
 		opacity: 0.35;
 		pointer-events: none;
+	}
+
+	.seventv-settings-node-header {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-areas: "label control";
+		align-items: start;
+		grid-area: header;
+		cursor: pointer;
+		outline: none;
+
+		&:focus-visible {
+			background-color: hsla(0deg, 0%, 100%, 4%);
+		}
 	}
 
 	.label {
@@ -162,6 +234,18 @@ const com = standard[props.node.type] ?? props.node.custom?.component;
 		align-items: start;
 		margin: 0.5rem 1rem;
 		grid-area: control;
+	}
+
+	.expand-toggle-chevron {
+		font-size: 1.35rem;
+		color: var(--seventv-text-color-secondary);
+		transform: translateX(-0.125rem);
+		transition: color 120ms ease;
+	}
+
+	.seventv-settings-node-header:hover .expand-toggle-chevron,
+	.seventv-settings-node-header:focus-visible .expand-toggle-chevron {
+		color: var(--seventv-text-color-normal);
 	}
 
 	@media (width <= 60rem) {

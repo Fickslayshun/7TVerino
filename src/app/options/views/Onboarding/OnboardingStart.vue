@@ -1,7 +1,14 @@
 <template>
 	<main class="startpage">
 		<section class="startpage__hero">
-			<Logo7TV class="startpage__logo" />
+			<button
+				class="startpage__logo-button"
+				type="button"
+				aria-label="Toggle onboarding graphics mode"
+				@dblclick="enableLegacyOnboarding"
+			>
+				<Logo7TV class="startpage__logo" />
+			</button>
 
 			<h1
 				v-t="isUpgraded ? 'onboarding.start_title_upgraded' : 'onboarding.start_title'"
@@ -19,6 +26,9 @@
 					v-t="'onboarding.start_skip_note_upgraded_quirky'"
 					class="startpage__note-quirky"
 				/>
+			</p>
+			<p v-if="!legacyEnabled" class="startpage__toggle-note">
+				Double click the 7TV logo if you have hardware/graphics acceleration on.
 			</p>
 
 			<div class="startpage__actions">
@@ -59,7 +69,12 @@ import { useRouter } from "vue-router";
 import ChevronIcon from "@/assets/svg/icons/ChevronIcon.vue";
 import Logo7TV from "@/assets/svg/logos/Logo7TV.vue";
 import UiButton from "@/ui/UiButton.vue";
-import { ONBOARDING_UPGRADED, useOnboarding } from "./Onboarding";
+import {
+	ONBOARDING_ENABLE_LEGACY,
+	ONBOARDING_LEGACY_ENABLED,
+	ONBOARDING_UPGRADED,
+	useOnboarding,
+} from "./Onboarding";
 
 useHead({
 	title: "Onboarding",
@@ -67,12 +82,18 @@ useHead({
 
 useOnboarding("start");
 const isUpgraded = inject(ONBOARDING_UPGRADED, ref(false));
+const enableLegacy = inject(ONBOARDING_ENABLE_LEGACY, () => undefined);
+const legacyEnabled = inject(ONBOARDING_LEGACY_ENABLED, ref(false));
 const cursorActive = inject('CURSOR_ACTIVE', ref(false));
 const router = useRouter();
 
 function skipConfig(): void {
 	cursorActive.value = false;
 	router.push({ name: "Onboarding", params: { step: "promotion" } });
+}
+
+function enableLegacyOnboarding(): void {
+	enableLegacy();
 }
 </script>
 
@@ -136,6 +157,16 @@ export const step: OnboardingStepRoute = {
 	animation-delay: 0.15s;
 }
 
+.startpage__logo-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+}
+
 .startpage__title {
 	margin: 2rem 0 0;
 	font-size: clamp(3.5rem, 7vw, 5.5rem);
@@ -168,6 +199,16 @@ export const step: OnboardingStepRoute = {
 
 .startpage__note-quirky {
 	margin-left: 0.4rem;
+}
+
+.startpage__toggle-note {
+	margin: 0.7rem 0 0;
+	max-width: 32rem;
+	font-size: 0.78rem;
+	line-height: 1.45;
+	color: rgba(255, 255, 255, 0.34);
+	letter-spacing: 0.01em;
+	animation-delay: 0.44s;
 }
 
 .startpage__actions {

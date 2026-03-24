@@ -1,5 +1,13 @@
 # Patch Notes
 
+24/03/2026 - Fixes and tweaks
+- Added Chat Timestamps setting
+- Added the ability to clear most used emotes
+- 7TV emote menu now closes when chat is in focus
+- Fixed username autofill not adding a space or being clickable
+- Updated Emote Bar in settings
+- Onboarding now uses simpler graphics by default
+
 22/03/2026 - Standard update
 - Added most used emote menu and ability to combine with recent
 - Removed raider highlights from settings

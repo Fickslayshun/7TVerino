@@ -37,6 +37,68 @@
 			<section class="panel-section">
 				<header class="panel-section-title">Custom Settings</header>
 
+				<div class="panel-subsection">
+					<button
+						class="panel-row panel-row-button panel-row-expand"
+						type="button"
+						@click="emoteMenuExpanded = !emoteMenuExpanded"
+					>
+						<span class="panel-label">Emote Menu</span>
+						<span class="panel-expand-meta">
+							<span class="panel-value">{{ formatRecentEmoteMode(recentEmoteMode) }}</span>
+							<span class="panel-chevron" :class="{ open: emoteMenuExpanded }" aria-hidden="true">›</span>
+						</span>
+					</button>
+
+					<div v-if="emoteMenuExpanded" class="panel-subrows">
+						<button class="panel-row panel-row-button" type="button" @click="cycleRecentEmoteMode">
+							<span class="panel-label">Mode</span>
+							<span class="panel-value interactive">
+								{{ formatRecentEmoteMode(recentEmoteMode) }}
+							</span>
+						</button>
+
+						<button class="panel-row panel-row-button" type="button" @click="toggleRecentEmoteScope">
+							<span class="panel-label">Emote Scope</span>
+							<span class="panel-value interactive">
+								{{ formatRecentEmoteScope(recentEmoteScope) }}
+							</span>
+						</button>
+
+						<button class="panel-row panel-row-button" type="button" @click="handleClearAllEmoteHistory">
+							<span class="panel-label">Clear All</span>
+							<span class="panel-value interactive">Reset</span>
+						</button>
+
+						<div class="panel-channel-clear">
+							<label class="panel-channel-clear-label" for="tverino-clear-most-used-channel">
+								Clear Most Used (Channel)
+							</label>
+							<div class="panel-channel-clear-input-row">
+								<input
+									id="tverino-clear-most-used-channel"
+									v-model="clearMostUsedChannelName"
+									class="panel-channel-clear-input"
+									type="text"
+									placeholder="Type a channel name"
+									@keydown.enter.prevent="handleClearMostUsedByChannelName"
+								/>
+								<button
+									class="panel-channel-clear-button"
+									type="button"
+									@click="handleClearMostUsedByChannelName"
+								>
+									Clear
+								</button>
+							</div>
+						</div>
+
+						<p v-if="emoteMenuFeedback" class="panel-feedback" :class="{ error: emoteMenuFeedbackError }">
+							{{ emoteMenuFeedback }}
+						</p>
+					</div>
+				</div>
+
 				<div class="panel-rows">
 					<button
 						v-for="row of settingsRows"
@@ -66,9 +128,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { ChannelContext } from "@/composable/channel/useChannelContext";
-import type { RecentEmoteBarMode } from "@/composable/chat/useRecentSentEmotes";
+import { type RecentEmoteBarMode, useRecentSentEmotes } from "@/composable/chat/useRecentSentEmotes";
 import { useConfig } from "@/composable/useSettings";
 import UiFloating from "@/ui/UiFloating.vue";
 import { offset, shift } from "@floating-ui/dom";
@@ -116,9 +178,15 @@ const compactTooltips = useConfig<boolean>("ui.compact_tooltips", false);
 const recentEmoteMode = useConfig<RecentEmoteBarMode>("chat.recent_emote_bar.mode", "recent");
 const recentEmoteScope = useConfig<RecentEmoteScope>("chat.recent_emote_bar.scope", "7tv");
 const deletedMessages = useConfig<DeletedMessageMode>("chat.deleted_messages", 1);
+const chatTimestamps = useConfig<boolean>("chat.tverino.timestamps", false);
 const displaySeconds = useConfig<boolean>("chat.timestamp_with_seconds", false);
 const timestampFormat = useConfig<TimestampFormatKey>("chat.timestamp_format", "infer");
 const mentionStyle = useConfig<MentionStyle>("chat.colored_mentions", 1);
+const recentSentEmotes = useRecentSentEmotes();
+const emoteMenuExpanded = ref(false);
+const clearMostUsedChannelName = ref("");
+const emoteMenuFeedback = ref("");
+const emoteMenuFeedbackError = ref(false);
 
 const channelLabel = computed(() => props.ctx.displayName || props.ctx.username || "Channel");
 const showModeratorSection = computed(
@@ -169,28 +237,6 @@ const moderatorStateRows = computed<ModeratorStateRow[]>(() => {
 const settingsRows = computed<SettingsRow[]>(() => {
 	const rows = [
 		{
-			id: "recent-emote-mode",
-			label: "Emote Menu (Recent/Most Used)",
-			kind: "value",
-			value: formatRecentEmoteMode(recentEmoteMode.value),
-			action: () => {
-				recentEmoteMode.value = cycleValue<RecentEmoteBarMode>(recentEmoteMode.value, [
-					"recent",
-					"most_used",
-					"combine",
-				]);
-			},
-		},
-		{
-			id: "recent-emote-scope",
-			label: "Emote Menu Scope",
-			kind: "value",
-			value: formatRecentEmoteScope(recentEmoteScope.value),
-			action: () => {
-				recentEmoteScope.value = recentEmoteScope.value === "7tv" ? "all" : "7tv";
-			},
-		},
-		{
 			id: "show-modifiers",
 			label: "Show Emote Modifiers",
 			kind: "toggle",
@@ -206,6 +252,15 @@ const settingsRows = computed<SettingsRow[]>(() => {
 			enabled: compactTooltips.value,
 			action: () => {
 				compactTooltips.value = !compactTooltips.value;
+			},
+		},
+		{
+			id: "chat-timestamps",
+			label: "Chat Timestamps",
+			kind: "toggle",
+			enabled: chatTimestamps.value,
+			action: () => {
+				chatTimestamps.value = !chatTimestamps.value;
 			},
 		},
 		{
@@ -254,6 +309,70 @@ function cycleValue<T>(value: T, values: readonly T[]): T {
 	return values[(index + 1 + values.length) % values.length]!;
 }
 
+function cycleRecentEmoteMode(): void {
+	recentEmoteMode.value = cycleValue<RecentEmoteBarMode>(recentEmoteMode.value, [
+		"none",
+		"recent",
+		"most_used",
+		"combine",
+	]);
+	clearEmoteMenuFeedback();
+}
+
+function toggleRecentEmoteScope(): void {
+	recentEmoteScope.value = recentEmoteScope.value === "7tv" ? "all" : "7tv";
+	clearEmoteMenuFeedback();
+}
+
+function clearEmoteMenuFeedback(): void {
+	emoteMenuFeedback.value = "";
+	emoteMenuFeedbackError.value = false;
+}
+
+function setEmoteMenuFeedback(message: string, error = false): void {
+	emoteMenuFeedback.value = message;
+	emoteMenuFeedbackError.value = error;
+}
+
+function normalizeChannelName(value: string): string {
+	return value.trim().replace(/^@/, "").toLowerCase();
+}
+
+function handleClearAllEmoteHistory(): void {
+	recentSentEmotes.clearAll();
+	clearMostUsedChannelName.value = "";
+	setEmoteMenuFeedback("Cleared recent and most-used emotes.");
+}
+
+function handleClearMostUsedByChannelName(): void {
+	const rawChannelName = clearMostUsedChannelName.value.trim();
+	const normalizedChannelName = normalizeChannelName(rawChannelName);
+	if (!normalizedChannelName) {
+		setEmoteMenuFeedback("Enter a channel name first.", true);
+		return;
+	}
+
+	const currentChannelNames = [
+		props.ctx.id,
+		props.ctx.username,
+		props.ctx.displayName,
+	]
+		.filter((value): value is string => !!value)
+		.map((value) => normalizeChannelName(value));
+	const didClear =
+		currentChannelNames.includes(normalizedChannelName)
+			? recentSentEmotes.clearMostUsed(props.ctx.id)
+			: recentSentEmotes.clearMostUsedByChannelName(rawChannelName);
+
+	if (!didClear) {
+		setEmoteMenuFeedback(`No most-used emotes found for ${rawChannelName}.`, true);
+		return;
+	}
+
+	clearMostUsedChannelName.value = "";
+	setEmoteMenuFeedback(`Cleared most-used emotes for ${rawChannelName}.`);
+}
+
 function formatDeletedMessageDisplay(value: DeletedMessageMode): string {
 	switch (value) {
 		case 0:
@@ -269,17 +388,19 @@ function formatDeletedMessageDisplay(value: DeletedMessageMode): string {
 
 function formatRecentEmoteMode(value: RecentEmoteBarMode): string {
 	switch (value) {
+		case "none":
+			return "Disabled";
 		case "most_used":
 			return "Most Used";
 		case "combine":
-			return "Both";
+			return "Combined";
 		default:
 			return "Recent";
 	}
 }
 
 function formatRecentEmoteScope(value: RecentEmoteScope): string {
-	return value === "7tv" ? "7TV Only" : "All Active";
+	return value === "7tv" ? "7TV Emotes" : "7TV + Twitch Emotes";
 }
 
 function formatTimestampFormat(value: TimestampFormatKey): string {
@@ -420,6 +541,19 @@ function formatFollowersOnlyMode(enabled: boolean, duration: number): string {
 	gap: 0.5rem;
 }
 
+.panel-subsection {
+	display: grid;
+	gap: 0.55rem;
+	margin-bottom: 0.75rem;
+}
+
+.panel-subrows {
+	display: grid;
+	gap: 0.5rem;
+	padding: 0.55rem 0 0 1rem;
+	border-left: 0.1rem solid rgb(255 255 255 / 0.08);
+}
+
 .panel-row {
 	display: flex;
 	align-items: center;
@@ -444,6 +578,10 @@ function formatFollowersOnlyMode(enabled: boolean, duration: number): string {
 	}
 }
 
+.panel-row-expand {
+	padding-inline: 0.2rem;
+}
+
 .panel-row-static {
 	padding-inline: 0.2rem;
 }
@@ -465,6 +603,87 @@ function formatFollowersOnlyMode(enabled: boolean, duration: number): string {
 	&.interactive::after {
 		content: " >";
 		color: rgb(255 255 255 / 0.38);
+	}
+}
+
+.panel-expand-meta {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.85rem;
+	flex: 0 0 auto;
+}
+
+.panel-chevron {
+	color: rgb(255 255 255 / 0.5);
+	font-size: 1.9rem;
+	line-height: 1;
+	transform: rotate(0deg);
+	transition: transform 120ms ease;
+
+	&.open {
+		transform: rotate(90deg);
+	}
+}
+
+.panel-channel-clear {
+	display: grid;
+	gap: 0.55rem;
+	padding: 0.1rem 0 0.15rem;
+}
+
+.panel-channel-clear-label {
+	color: rgb(255 255 255 / 0.76);
+	font-size: 1.28rem;
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.panel-channel-clear-input-row {
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
+}
+
+.panel-channel-clear-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	height: 3.2rem;
+	padding: 0 1rem;
+	border: 0.1rem solid rgb(255 255 255 / 0.12);
+	border-radius: 0.45rem;
+	background: rgb(255 255 255 / 0.03);
+	color: #fff;
+	font-size: 1.32rem;
+	transition:
+		border-color 120ms ease,
+		background-color 120ms ease;
+
+	&::placeholder {
+		color: rgb(255 255 255 / 0.44);
+	}
+
+	&:hover,
+	&:focus {
+		border-color: rgb(255 255 255 / 0.22);
+		background: rgb(255 255 255 / 0.05);
+		outline: none;
+	}
+}
+
+.panel-channel-clear-button {
+	flex: 0 0 auto;
+	height: 3.2rem;
+	padding: 0 1rem;
+	border-radius: 0.45rem;
+	background: rgb(255 255 255 / 0.07);
+	color: #fff;
+	font-size: 1.25rem;
+	font-weight: 700;
+	transition: background-color 120ms ease;
+
+	&:hover,
+	&:focus-visible {
+		background: rgb(255 255 255 / 0.12);
 	}
 }
 

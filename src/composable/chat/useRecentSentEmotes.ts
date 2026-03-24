@@ -4,7 +4,7 @@ import { useConfig } from "@/composable/useSettings";
 export const RECENT_EMOTE_BAR_LIMIT = 6;
 
 export type RecentEmoteBarScope = "7tv" | "all";
-export type RecentEmoteBarMode = "recent" | "most_used" | "combine";
+export type RecentEmoteBarMode = "none" | "recent" | "most_used" | "combine";
 export type RecentSentEmoteProvider = "7TV" | "PLATFORM" | "BTTV" | "FFZ";
 
 export interface RecentSentEmoteEntry {
@@ -49,6 +49,20 @@ interface RecentSentEmoteUsageState {
 	timestamps: Map<string, number>;
 }
 
+interface RecentSentEmoteChannelMeta {
+	username?: string;
+	displayName?: string;
+}
+
+interface RecentSentEmoteChannelMetaSnapshotChannel extends RecentSentEmoteChannelMeta {
+	channelID: string;
+}
+
+interface RecentSentEmoteChannelMetaSnapshot {
+	version: 1;
+	channels: RecentSentEmoteChannelMetaSnapshotChannel[];
+}
+
 const rawMode = useConfig<RecentEmoteBarMode | string>("chat.recent_emote_bar.mode", "recent");
 const scope = useConfig<RecentEmoteBarScope>("chat.recent_emote_bar.scope", "7tv");
 const legacyHistory = useConfig<Map<string, RecentSentEmoteEntry[]>>("chat.recent_emote_bar.history", new Map());
@@ -56,9 +70,11 @@ const history = ref<Map<string, RecentSentEmoteEntry[]>>(new Map());
 const historyTimestamps = ref<Map<string, number>>(new Map());
 const usageHistory = ref<Map<string, RecentSentEmoteUsageEntry[]>>(new Map());
 const usageHistoryTimestamps = ref<Map<string, number>>(new Map());
+const channelMeta = ref<Map<string, RecentSentEmoteChannelMeta>>(new Map());
 const RECENT_EMOTE_HISTORY_SESSION_KEY = "seventv:recent-emote-bar:history";
 const RECENT_EMOTE_HISTORY_STORAGE_KEY = "seventv:recent-emote-bar:history:persistent";
 const RECENT_EMOTE_USAGE_STORAGE_KEY = "seventv:recent-emote-bar:usage:persistent";
+const RECENT_EMOTE_CHANNEL_META_STORAGE_KEY = "seventv:recent-emote-bar:channels:persistent";
 
 const SUPPORTED_PROVIDERS = new Set<RecentSentEmoteProvider>(["7TV", "PLATFORM", "BTTV", "FFZ"]);
 const TOKEN_EDGE_PUNCTUATION = /^[`~!@#$%^&*()\-+=\[\]{}\\|;:'",.<>/?]+|[`~!@#$%^&*()\-+=\[\]{}\\|;:'",.<>/?]+$/g;
@@ -83,6 +99,7 @@ function emptyUsageState(): RecentSentEmoteUsageState {
 
 function normalizeRecentEmoteBarMode(value: unknown): RecentEmoteBarMode {
 	switch (value) {
+		case "none":
 		case "most_used":
 		case "combine":
 		case "recent":
@@ -350,6 +367,98 @@ function currentUsageState(): RecentSentEmoteUsageState {
 	return normalizeUsageState(usageHistory.value.entries(), usageHistoryTimestamps.value.entries());
 }
 
+function normalizeChannelMetaEntry(value: RecentSentEmoteChannelMeta | null | undefined): RecentSentEmoteChannelMeta | null {
+	if (!value) return null;
+
+	const username = value.username?.trim();
+	const displayName = value.displayName?.trim();
+	if (!username && !displayName) return null;
+
+	return {
+		username,
+		displayName,
+	};
+}
+
+function normalizeChannelMetaState(
+	value: Iterable<[string, RecentSentEmoteChannelMeta]> | null | undefined,
+): Map<string, RecentSentEmoteChannelMeta> {
+	const out = new Map<string, RecentSentEmoteChannelMeta>();
+
+	for (const [channelID, meta] of value ?? []) {
+		if (typeof channelID !== "string" || !channelID) continue;
+
+		const normalized = normalizeChannelMetaEntry(meta);
+		if (!normalized) continue;
+
+		out.set(channelID, normalized);
+	}
+
+	return out;
+}
+
+function normalizeChannelMetaSnapshot(value: unknown): Map<string, RecentSentEmoteChannelMeta> {
+	if (!value || typeof value !== "object") {
+		return new Map();
+	}
+
+	const channels = (value as Partial<RecentSentEmoteChannelMetaSnapshot>).channels;
+	if (!(channels instanceof Array)) {
+		return new Map();
+	}
+
+	const out = new Map<string, RecentSentEmoteChannelMeta>();
+
+	for (const channel of channels) {
+		if (!channel || typeof channel !== "object") continue;
+
+		const channelID = (channel as Partial<RecentSentEmoteChannelMetaSnapshotChannel>).channelID;
+		if (typeof channelID !== "string" || !channelID) continue;
+
+		const normalized = normalizeChannelMetaEntry(channel as RecentSentEmoteChannelMetaSnapshotChannel);
+		if (!normalized) continue;
+
+		out.set(channelID, normalized);
+	}
+
+	return out;
+}
+
+function buildChannelMetaSnapshot(state: Map<string, RecentSentEmoteChannelMeta>): RecentSentEmoteChannelMetaSnapshot {
+	return {
+		version: 1,
+		channels: Array.from(state.entries()).map(([channelID, meta]) => ({
+			channelID,
+			...meta,
+		})),
+	};
+}
+
+function readChannelMetaState(storage: Storage, key: string): Map<string, RecentSentEmoteChannelMeta> {
+	try {
+		const raw = storage.getItem(key);
+		if (!raw) return new Map();
+
+		return normalizeChannelMetaSnapshot(JSON.parse(raw));
+	} catch {
+		storage.removeItem(key);
+		return new Map();
+	}
+}
+
+function writeChannelMetaState(storage: Storage, key: string, state: Map<string, RecentSentEmoteChannelMeta>): void {
+	try {
+		if (state.size === 0) {
+			storage.removeItem(key);
+			return;
+		}
+
+		storage.setItem(key, JSON.stringify(buildChannelMetaSnapshot(state)));
+	} catch {
+		// Ignore storage failures and keep the in-memory channel metadata active.
+	}
+}
+
 function applyHistoryState(nextState: RecentSentEmoteHistoryState): boolean {
 	const normalized = normalizeHistoryState(nextState.history.entries(), nextState.timestamps.entries());
 	if (isSameHistoryState(currentHistoryState(), normalized)) return false;
@@ -500,6 +609,12 @@ function persistUsageState(nextState = currentUsageState()): void {
 	writeUsageState(window.localStorage, RECENT_EMOTE_USAGE_STORAGE_KEY, nextState);
 }
 
+function persistChannelMetaState(nextState = normalizeChannelMetaState(channelMeta.value.entries())): void {
+	if (typeof window === "undefined") return;
+
+	writeChannelMetaState(window.localStorage, RECENT_EMOTE_CHANNEL_META_STORAGE_KEY, nextState);
+}
+
 function bindStorageListener(): void {
 	if (storageListenerBound || typeof window === "undefined") return;
 
@@ -519,6 +634,14 @@ function bindStorageListener(): void {
 		if (ev.key === RECENT_EMOTE_USAGE_STORAGE_KEY) {
 			applyUsageState(
 				mergeUsageStates(currentUsageState(), readUsageState(window.localStorage, RECENT_EMOTE_USAGE_STORAGE_KEY)),
+			);
+			return;
+		}
+
+		if (ev.key === RECENT_EMOTE_CHANNEL_META_STORAGE_KEY) {
+			channelMeta.value = mergeChannelMetaStates(
+				channelMeta.value,
+				readChannelMetaState(window.localStorage, RECENT_EMOTE_CHANNEL_META_STORAGE_KEY),
 			);
 		}
 	});
@@ -558,9 +681,51 @@ function ensureInitialized(): void {
 	const mergedUsageState = mergeUsageStates(readUsageState(window.localStorage, RECENT_EMOTE_USAGE_STORAGE_KEY));
 	applyUsageState(mergedUsageState);
 	persistUsageState(mergedUsageState);
+	channelMeta.value = normalizeChannelMetaState(
+		readChannelMetaState(window.localStorage, RECENT_EMOTE_CHANNEL_META_STORAGE_KEY).entries(),
+	);
+	persistChannelMetaState(channelMeta.value);
 	bindStorageListener();
 	bindLegacyMigrationWatcher();
 	initialized = true;
+}
+
+function mergeChannelMetaStates(
+	...states: (Map<string, RecentSentEmoteChannelMeta> | Iterable<[string, RecentSentEmoteChannelMeta]>)[]
+): Map<string, RecentSentEmoteChannelMeta> {
+	const merged = new Map<string, RecentSentEmoteChannelMeta>();
+
+	for (const state of states) {
+		for (const [channelID, meta] of state) {
+			const normalized = normalizeChannelMetaEntry(meta);
+			if (!normalized) continue;
+
+			merged.set(channelID, {
+				...merged.get(channelID),
+				...normalized,
+			});
+		}
+	}
+
+	return normalizeChannelMetaState(merged.entries());
+}
+
+function rememberChannel(channelID: string, meta?: RecentSentEmoteChannelMeta): void {
+	if (!channelID) return;
+
+	ensureInitialized();
+	const normalized = normalizeChannelMetaEntry(meta);
+	if (!normalized) return;
+
+	const existing = channelMeta.value.get(channelID);
+	if (existing?.username === normalized.username && existing?.displayName === normalized.displayName) {
+		return;
+	}
+
+	const nextState = new Map(channelMeta.value);
+	nextState.set(channelID, normalized);
+	channelMeta.value = normalizeChannelMetaState(nextState.entries());
+	persistChannelMetaState(channelMeta.value);
 }
 
 function getEntries(channelID: string): RecentSentEmoteEntry[] {
@@ -600,9 +765,75 @@ function resolveEmoteToken(token: string, activeEmotes: Record<string, SevenTV.A
 	return activeEmotes[trimmedToken] ?? null;
 }
 
-function recordMessage(channelID: string, message: string, activeEmotes: Record<string, SevenTV.ActiveEmote>): void {
+function clearAll(): void {
+	ensureInitialized();
+
+	history.value = new Map();
+	historyTimestamps.value = new Map();
+	usageHistory.value = new Map();
+	usageHistoryTimestamps.value = new Map();
+	channelMeta.value = new Map();
+	legacyHistory.value = new Map();
+
+	if (typeof window === "undefined") return;
+
+	window.sessionStorage.removeItem(RECENT_EMOTE_HISTORY_SESSION_KEY);
+	window.localStorage.removeItem(RECENT_EMOTE_HISTORY_STORAGE_KEY);
+	window.localStorage.removeItem(RECENT_EMOTE_USAGE_STORAGE_KEY);
+	window.localStorage.removeItem(RECENT_EMOTE_CHANNEL_META_STORAGE_KEY);
+}
+
+function clearMostUsed(channelID: string): boolean {
+	if (!channelID) return false;
+
+	ensureInitialized();
+	if (!usageHistory.value.has(channelID)) return false;
+
+	const nextUsageHistory = new Map(usageHistory.value);
+	const nextUsageTimestamps = new Map(usageHistoryTimestamps.value);
+	nextUsageHistory.delete(channelID);
+	nextUsageTimestamps.delete(channelID);
+
+	const nextUsageState = normalizeUsageState(nextUsageHistory.entries(), nextUsageTimestamps.entries());
+	applyUsageState(nextUsageState);
+	persistUsageState(nextUsageState);
+
+	return true;
+}
+
+function resolveChannelIDByName(channelName: string): string | null {
+	ensureInitialized();
+
+	const normalizedName = channelName.trim().replace(/^@/, "").toLowerCase();
+	if (!normalizedName) return null;
+
+	for (const [channelID, meta] of channelMeta.value) {
+		const username = meta.username?.trim().toLowerCase();
+		const displayName = meta.displayName?.trim().toLowerCase();
+		if (normalizedName === channelID.toLowerCase() || normalizedName === username || normalizedName === displayName) {
+			return channelID;
+		}
+	}
+
+	return null;
+}
+
+function clearMostUsedByChannelName(channelName: string): boolean {
+	const channelID = resolveChannelIDByName(channelName);
+	if (!channelID) return false;
+
+	return clearMostUsed(channelID);
+}
+
+function recordMessage(
+	channelID: string,
+	message: string,
+	activeEmotes: Record<string, SevenTV.ActiveEmote>,
+	meta?: RecentSentEmoteChannelMeta,
+): void {
 	ensureInitialized();
 	if (!channelID) return;
+	rememberChannel(channelID, meta);
 
 	const tokens = message.trim().split(/\s+/).filter(Boolean);
 	if (!tokens.length) return;
@@ -720,6 +951,10 @@ export function useRecentSentEmotes() {
 		getEntries,
 		getMostUsedEntries,
 		scopeAllows,
+		clearAll,
+		clearMostUsed,
+		clearMostUsedByChannelName,
+		resolveChannelIDByName,
 		recordMessage,
 	};
 }

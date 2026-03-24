@@ -123,8 +123,9 @@
 					type="text"
 					autocomplete="off"
 					spellcheck="false"
-					@focus="isFocused = true"
+					@focus="onInputFocus"
 					@blur="onBlur"
+					@pointerdown="closeEmoteMenuFromInput"
 					@keydown="onKeyDown"
 				/>
 				<button
@@ -319,7 +320,7 @@
 				class="seventv-tverino-suggestion"
 				:class="{ active: index === suggestionIndex }"
 				type="button"
-				@mousedown.prevent="applySuggestion(item)"
+				@mousedown.prevent="onSuggestionMouseDown(item)"
 			>
 				<span class="main">
 					<span v-if="item.kind === 'emote' && item.emote" class="preview">
@@ -1107,6 +1108,31 @@ function normalizeSuggestionText(value: string | null | undefined): string {
 	return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
+function normalizeSuggestionMatchToken(value: string, kind: SuggestionItem["kind"]): string {
+	const normalized = normalizeSuggestionText(value);
+	return kind === "emote" ? normalized : normalized.toLowerCase();
+}
+
+function isSuggestionAlreadyTyped(token: string, item: SuggestionItem): boolean {
+	const typedToken = normalizeSuggestionMatchToken(token, item.kind);
+	if (!typedToken) return false;
+
+	const candidates = new Set<string>([
+		normalizeSuggestionMatchToken(item.token, item.kind),
+		normalizeSuggestionMatchToken(item.replacement, item.kind),
+	]);
+
+	if (item.kind === "emote") {
+		candidates.add(normalizeSuggestionMatchToken(`:${item.token}`, item.kind));
+	}
+
+	return candidates.has(typedToken);
+}
+
+function filterTypedSuggestionItems(token: string, items: SuggestionItem[]): SuggestionItem[] {
+	return items.filter((item) => !isSuggestionAlreadyTyped(token, item));
+}
+
 function getNativeAutocompleteTrayRoot(): HTMLElement | null {
 	if (props.mode !== "native") return null;
 
@@ -1282,16 +1308,16 @@ const suggestionItems = computed<SuggestionItem[]>(() => {
 			if (items.length >= 8) break;
 		}
 
-		return items;
+		return filterTypedSuggestionItems(token, items);
 	}
 
 	if (isCommandToken) {
 		const trayItems = getNativeTraySuggestionItems(token);
-		if (trayItems.length) return trayItems;
+		if (trayItems.length) return filterTypedSuggestionItems(token, trayItems);
 
 		const nativeItems = getNativeSuggestionItems(token);
-		if (nativeItems.length) return nativeItems;
-		return getCommandSuggestionItems(token);
+		if (nativeItems.length) return filterTypedSuggestionItems(token, nativeItems);
+		return filterTypedSuggestionItems(token, getCommandSuggestionItems(token));
 	}
 
 	if (token.length < 2) return [] as SuggestionItem[];
@@ -1300,10 +1326,10 @@ const suggestionItems = computed<SuggestionItem[]>(() => {
 
 	if (isColonToken) {
 		const trayItems = getNativeTraySuggestionItems(token);
-		if (trayItems.length) return trayItems;
+		if (trayItems.length) return filterTypedSuggestionItems(token, trayItems);
 
 		const nativeItems = getNativeSuggestionItems(token);
-		if (nativeItems.length) return nativeItems;
+		if (nativeItems.length) return filterTypedSuggestionItems(token, nativeItems);
 	}
 
 	const normalized = (isColonToken ? token.slice(1) : token).toLowerCase();
@@ -1322,7 +1348,7 @@ const suggestionItems = computed<SuggestionItem[]>(() => {
 		});
 	}
 
-	return items;
+	return filterTypedSuggestionItems(token, items);
 });
 
 function getTokenAtCursor(): { token: string; start: number; end: number } {
@@ -1564,9 +1590,21 @@ function appendToken(nextToken: string): void {
 	clearTabCycle();
 }
 
-function applySuggestion(item: SuggestionItem): void {
-	replaceToken(item.replacement);
+function applySuggestion(item: SuggestionItem, appendSpace = false): void {
+	if (appendSpace) {
+		const { start, end } = getTokenAtCursor();
+		const replacement = item.replacement.endsWith(" ") ? item.replacement : `${item.replacement} `;
+		replaceRange(start, end, replacement);
+		clearTabCycle();
+	} else {
+		replaceToken(item.replacement);
+	}
+
 	suggestionIndex.value = 0;
+}
+
+function onSuggestionMouseDown(item: SuggestionItem): void {
+	applySuggestion(item, item.kind === "user");
 }
 
 function handleTabPress(ev: KeyboardEvent, backwards = false): void {
@@ -1649,6 +1687,15 @@ function onBlur(): void {
 		suggestionIndex.value = 0;
 		clearTabCycle();
 	}, 100);
+}
+
+function closeEmoteMenuFromInput(): void {
+	emoteMenuCtx.open = false;
+}
+
+function onInputFocus(): void {
+	isFocused.value = true;
+	closeEmoteMenuFromInput();
 }
 
 function closeNativeReplyTray(): void {
@@ -1902,7 +1949,10 @@ function submit(explicitText?: string, trigger?: Event | SubmitModifierLike): vo
 		timestamp: Date.now(),
 	} as Twitch.ChatMessage);
 
-	recentSentEmotes.recordMessage(props.ctx.id, message, emotes.active);
+	recentSentEmotes.recordMessage(props.ctx.id, message, emotes.active, {
+		username: props.ctx.username,
+		displayName: props.ctx.displayName,
+	});
 	sendChatMessage(props.ctx.id, props.ctx.username, message, nonce, replyMetadata);
 	pushMessageHistory(message);
 	finalizeSubmit(keepDraft);

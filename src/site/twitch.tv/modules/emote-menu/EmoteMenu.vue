@@ -188,6 +188,27 @@ watchEffect(() => {
 	}
 });
 
+watch(
+	inputEl,
+	(el, _, onCleanup) => {
+		if (!el) return;
+
+		const closeOnInputInteraction = () => {
+			if (!ctx.open) return;
+			ctx.open = false;
+		};
+
+		el.addEventListener("pointerdown", closeOnInputInteraction);
+		el.addEventListener("focusin", closeOnInputInteraction);
+
+		onCleanup(() => {
+			el.removeEventListener("pointerdown", closeOnInputInteraction);
+			el.removeEventListener("focusin", closeOnInputInteraction);
+		});
+	},
+	{ immediate: true },
+);
+
 onUnmounted(() => {
 	unsetPropertyHook(props.instance.component.autocompleteInputRef, "state");
 	unsetPropertyHook(props.instance.component, "onBitsIconClick");

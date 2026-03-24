@@ -1,5 +1,5 @@
 <template>
-	<span class="seventv-raid-message-container seventv-highlight">
+	<span class="seventv-raid-message-container">
 		<span class="bold">{{ msgData.params.displayName }}</span>
 		raided
 		<template v-if="msgData.sourceData"> {{ msgData.sourceData.displayName }}'s channel </template>
@@ -23,14 +23,11 @@ defineProps<{
 	margin-bottom: 0.5rem;
 	overflow-wrap: anywhere;
 	background-color: hsla(0deg, 0%, 50%, 5%);
+	border-left: 0.1rem solid rgba(255, 255, 255, 0.06);
+	border-radius: 0.25rem;
 
 	.bold {
 		font-weight: 700;
 	}
-}
-
-.seventv-highlight {
-	border-left: 0.4rem solid var(--seventv-channel-accent);
-	padding-left: 1.6rem !important;
 }
 </style>

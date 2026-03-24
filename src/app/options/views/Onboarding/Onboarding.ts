@@ -3,8 +3,10 @@ import { tryOnUnmounted } from "@vueuse/core";
 
 const ONBOARDING_KEY = Symbol() as InjectionKey<OnboardingData>;
 export const ONBOARDING_UPGRADED = Symbol() as InjectionKey<Ref<boolean>>;
+export const ONBOARDING_ENABLE_LEGACY = Symbol() as InjectionKey<() => void>;
+export const ONBOARDING_LEGACY_ENABLED = Symbol() as InjectionKey<Ref<boolean>>;
 
-interface OnboardingData {
+export interface OnboardingData {
 	activeStep: OnboardingStep | null;
 	steps: Map<string, OnboardingStep>;
 	sortedSteps: OnboardingStep[];

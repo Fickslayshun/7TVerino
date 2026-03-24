@@ -42,6 +42,7 @@ interface PlatformDef {
 
 const ctx = useOnboarding("platforms");
 const cursorActive = inject('CURSOR_ACTIVE', ref(false));
+const legacyEnabled = inject(ONBOARDING_LEGACY_ENABLED, ref(false));
 
 onActivated(() => {
 	ctx.setLock(true, () => {
@@ -72,6 +73,8 @@ function toggle(p: PlatformDef) {
 }
 
 function handleMouseMove(e: MouseEvent) {
+	if (!legacyEnabled.value) return;
+
 	const target = e.currentTarget as HTMLElement;
 	const rect = target.getBoundingClientRect();
 	const x = e.clientX - rect.left;
@@ -99,7 +102,7 @@ import { markRaw, onActivated, onDeactivated, ref, inject } from "vue";
 import LogoBrandKick from "@/assets/svg/logos/LogoBrandKick.vue";
 import LogoBrandTwitch from "@/assets/svg/logos/LogoBrandTwitch.vue";
 import LogoBrandYouTube from "@/assets/svg/logos/LogoBrandYouTube.vue";
-import { OnboardingStepRoute, useOnboarding } from "./Onboarding";
+import { ONBOARDING_LEGACY_ENABLED, OnboardingStepRoute, useOnboarding } from "./Onboarding";
 
 export const step: OnboardingStepRoute = {
 	name: "platforms",

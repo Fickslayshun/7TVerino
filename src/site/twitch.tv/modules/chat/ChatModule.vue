@@ -145,6 +145,7 @@ import { HighlightDef } from "@/composable/chat/useChatHighlights";
 import type { RecentEmoteBarMode, RecentEmoteBarScope, RecentSentEmoteEntry } from "@/composable/chat/useRecentSentEmotes";
 import { declareConfig, useConfig } from "@/composable/useSettings";
 import PersonalTimeoutManager from "./components/PersonalTimeoutManager.vue";
+import RecentEmoteMenuSettings from "./components/RecentEmoteMenuSettings.vue";
 import SettingsConfigHighlights from "@/app/settings/SettingsConfigHighlights.vue";
 
 export type TimestampFormatKey = "infer" | "12" | "24";
@@ -407,25 +408,32 @@ export const config = [
 			serialize: false,
 		},
 	),
-	declareConfig<RecentEmoteBarMode>("chat.recent_emote_bar.mode", "DROPDOWN", {
+	declareConfig("chat.tverino.timestamps", "TOGGLE", {
 		path: ["7TVerino", "Chat", 4],
-		label: "Emote Menu (Recent/Most Used)",
-		hint: "Choose whether the emote menu above the chat box shows recent emotes, most-used emotes, or both. Click sends immediately. Ctrl+Click or Alt+Click inserts into the chat box.",
-		options: [
-			["Recent", "recent"],
-			["Most Used", "most_used"],
-			["Both", "combine"],
-		],
+		label: "Chat Timestamps",
+		hint: "If enabled, every message in 7TVerino chat will show a timestamp",
+		defaultValue: false,
+	}),
+	declareConfig("chat.recent_emote_bar.panel", "CUSTOM", {
+		path: ["7TVerino", "Chat", 5],
+		label: "Emote Menu",
+		hint: "Configure the recent and most-used emote menu shown above chat.",
+		defaultValue: false,
+		persist: false,
+		serialize: false,
+		custom: {
+			component: markRaw(RecentEmoteMenuSettings),
+			gridMode: "new-row",
+			collapsible: true,
+			defaultExpanded: false,
+		},
+	}),
+	declareConfig<RecentEmoteBarMode>("chat.recent_emote_bar.mode", "NONE", {
+		label: "Emote Menu Mode",
 		defaultValue: "recent",
 	}),
-	declareConfig<RecentEmoteBarScope>("chat.recent_emote_bar.scope", "DROPDOWN", {
-		path: ["7TVerino", "Chat", 5],
+	declareConfig<RecentEmoteBarScope>("chat.recent_emote_bar.scope", "NONE", {
 		label: "Emote Menu Scope",
-		hint: "Choose whether the emote menu shows only 7TV emotes or all active non-emoji emotes.",
-		options: [
-			["7TV only", "7tv"],
-			["All active emotes", "all"],
-		],
 		defaultValue: "7tv",
 	}),
 	declareConfig<Map<string, RecentSentEmoteEntry[]>>("chat.recent_emote_bar.history", "NONE", {
@@ -437,14 +445,14 @@ export const config = [
 				: (v as Map<string, RecentSentEmoteEntry[]>),
 	}),
 	declareConfig("chat.tverino.beta_notice", "NONE", {
-		path: ["7TVerino", "Chat", 7],
+		path: ["7TVerino", "Chat", 8],
 		label: "7TVerino",
 		hint: "Replaces Twitch chat with a tabbed 7TV-styled multi-channel shell. Disable the toggle below if you want to fall back to native Twitch chat.",
 		defaultValue: false,
 		serialize: false,
 	}),
 	declareConfig("chat.tverino.enabled", "TOGGLE", {
-		path: ["7TVerino", "Chat", 8],
+		path: ["7TVerino", "Chat", 9],
 		label: "Enable 7TVerino",
 		hint: "Use the 7TVerino chat experience. Disable this if you want to fall back to native Twitch chat.",
 		defaultValue: true,

@@ -12,9 +12,8 @@ const messages = useChatMessages(ctx);
 const showMonitoredLowTrustUser = useConfig<boolean>("highlights.basic.monitored_low_trust_user");
 const showReturningChatter = useConfig<boolean>("highlights.basic.returning_chatter");
 
-const highlightOrder = {
+const highlightOrder: Partial<Record<EventDetail.ChatHighlight["highlights"][number]["type"], number>> = {
 	returning_chatter: 0,
-	raider: 1,
 };
 
 // Update the event listener in case the socket is updated
@@ -145,14 +144,13 @@ async function onChatHighlight(msg: EventDetail.ChatHighlight) {
 	}
 
 	const highlights = msg.highlights.sort((a, b) => {
-		return highlightOrder[b.type] - highlightOrder[a.type];
+		const aOrder = highlightOrder[a.type] ?? -1;
+		const bOrder = highlightOrder[b.type] ?? -1;
+		return bOrder - aOrder;
 	});
 
 	for (const highlight of highlights) {
 		switch (highlight.type) {
-			case "raider":
-				message.setHighlight("#6dd126", message.first ? "First Time Chat From Raider" : "Raider");
-				break;
 			case "returning_chatter":
 				if (showReturningChatter.value) message.setHighlight("#3296e6", "Returning Chatter");
 				break;

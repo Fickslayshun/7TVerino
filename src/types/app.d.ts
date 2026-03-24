@@ -128,6 +128,8 @@ declare namespace SevenTV {
 		custom?: {
 			component: Raw<object>;
 			gridMode: "right" | "new-row";
+			collapsible?: boolean;
+			defaultExpanded?: boolean;
 		};
 
 		defaultValue: T;

@@ -192,6 +192,7 @@ const processor = useChatMessageProcessor(ctx, {
 });
 const personalTimeoutMiddlewareKey = `personal-timeout:${ctx.id}`;
 const tverinoEnabled = useConfig<boolean>("chat.tverino.enabled", true);
+const showTVerinoTimestamps = useConfig<boolean>("chat.tverino.timestamps", false);
 const tverinoActiveTarget = ref<SevenTV.TVerinoActiveTarget>({
 	kind: "native",
 	id: "",
@@ -230,6 +231,10 @@ const nativeTVerinoInputStatus = computed<SevenTV.TVerinoTransportStatus>(() => 
 // line limit
 const lineLimit = useConfig("chat.line_limit", 150);
 const ignoreClearChat = useConfig<boolean>("chat.ignore_clear_chat");
+
+function syncTimestampVisibility(): void {
+	properties.showTimestamps = properties.nativeShowTimestamps || (tverinoEnabled.value && showTVerinoTimestamps.value);
+}
 
 // Defines the current channel for hooking
 const currentChannel = ref<CurrentChannel | null>(null);
@@ -806,7 +811,8 @@ watch(
 				document.body.style.setProperty("--seventv-channel-accent", primaryColor.value);
 
 				properties.useHighContrastColors = v.useHighContrastColors;
-				properties.showTimestamps = v.showTimestamps;
+				properties.nativeShowTimestamps = v.showTimestamps;
+				syncTimestampVisibility();
 				properties.showModerationIcons = v.showModerationIcons;
 
 				properties.pauseReason.clear();
@@ -1101,12 +1107,18 @@ definePropertyHook(controller.value.component, "props", {
 						emitTVerinoLocalMessage(activeTarget.id, pending);
 					}
 
-					recentSentEmotes.recordMessage(activeTarget.id, nextMessage, activeTargetEmotes?.active ?? {});
+					recentSentEmotes.recordMessage(activeTarget.id, nextMessage, activeTargetEmotes?.active ?? {}, {
+						username: activeTarget.login,
+						displayName: activeTarget.displayName,
+					});
 					sendTVerinoChatMessage(activeTarget.id, activeTarget.login, nextMessage, nonce);
 					return Promise.resolve(undefined);
 				}
 
-				recentSentEmotes.recordMessage(ctx.id, args[0], emotes.active);
+				recentSentEmotes.recordMessage(ctx.id, args[0], emotes.active, {
+					username: ctx.username,
+					displayName: ctx.displayName,
+				});
 			}
 
 			return old?.apply(this, args);
@@ -1262,6 +1274,10 @@ watch(
 	},
 	{ immediate: true },
 );
+
+watch([tverinoEnabled, showTVerinoTimestamps], syncTimestampVisibility, {
+	immediate: true,
+});
 
 watch(
 	[tverinoEnabled, currentChannel] as const,

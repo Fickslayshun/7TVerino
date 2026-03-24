@@ -6,6 +6,7 @@ interface ChatProperties {
 	isDarkTheme: number;
 	primaryColorHex: string | null;
 	useHighContrastColors: boolean;
+	nativeShowTimestamps: boolean;
 	showTimestamps: boolean;
 	showModerationIcons: boolean;
 	hovering: boolean;
@@ -27,6 +28,7 @@ export function useChatProperties(ctx: ChannelContext) {
 			isDarkTheme: 1,
 			primaryColorHex: null as string | null,
 			useHighContrastColors: true,
+			nativeShowTimestamps: false,
 			showTimestamps: false,
 			showModerationIcons: false,
 			hovering: false,

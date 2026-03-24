@@ -34,7 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, provide, ref, watch } from "vue";
+import { computed, onUnmounted, provide, ref, watch } from "vue";
 import { HookedInstance } from "@/common/ReactHooks";
 import { CHANNEL_CTX, type ChannelContext } from "@/composable/channel/useChannelContext";
 import { useChatProperties } from "@/composable/chat/useChatProperties";
@@ -113,6 +113,7 @@ const scroller = useChatScroller(props.ctx, {
 	bounds,
 });
 const lineLimit = useConfig("chat.line_limit", 150);
+const showTVerinoTimestamps = useConfig<boolean>("chat.tverino.timestamps", false);
 
 watch(
 	() => props.ctx.id,
@@ -120,6 +121,19 @@ watch(
 		scroller.unpause();
 	},
 );
+
+watch(
+	[() => properties.nativeShowTimestamps, showTVerinoTimestamps],
+	([nativeShowTimestamps, shouldShowTimestamps]) => {
+		properties.showTimestamps = nativeShowTimestamps || shouldShowTimestamps;
+	},
+	{ immediate: true },
+);
+
+onUnmounted(() => {
+	resizeObserver.disconnect();
+	properties.showTimestamps = properties.nativeShowTimestamps;
+});
 </script>
 
 <style scoped lang="scss">

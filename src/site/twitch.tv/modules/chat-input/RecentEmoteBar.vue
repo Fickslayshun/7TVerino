@@ -160,7 +160,10 @@ function appendEmoteToInput(emote: SevenTV.ActiveEmote): void {
 
 function sendEmote(emote: SevenTV.ActiveEmote): void {
 	const token = emote.unicode ?? emote.name;
-	recentSentEmotes.recordMessage(channelID.value, token, emotes.active);
+	recentSentEmotes.recordMessage(channelID.value, token, emotes.active, {
+		username: channelCtx.username,
+		displayName: channelCtx.displayName,
+	});
 	messages.sendMessage(token);
 	props.instance.component.focus();
 }
