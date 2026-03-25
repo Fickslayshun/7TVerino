@@ -41,16 +41,16 @@
 					<button
 						class="panel-row panel-row-button panel-row-expand"
 						type="button"
-						@click="emoteMenuExpanded = !emoteMenuExpanded"
+						@click="emoteBarExpanded = !emoteBarExpanded"
 					>
-						<span class="panel-label">Emote Menu</span>
+						<span class="panel-label">Emote Bar</span>
 						<span class="panel-expand-meta">
 							<span class="panel-value">{{ formatRecentEmoteMode(recentEmoteMode) }}</span>
-							<span class="panel-chevron" :class="{ open: emoteMenuExpanded }" aria-hidden="true">›</span>
+							<span class="panel-chevron" :class="{ open: emoteBarExpanded }" aria-hidden="true">›</span>
 						</span>
 					</button>
 
-					<div v-if="emoteMenuExpanded" class="panel-subrows">
+					<div v-if="emoteBarExpanded" class="panel-subrows">
 						<button class="panel-row panel-row-button" type="button" @click="cycleRecentEmoteMode">
 							<span class="panel-label">Mode</span>
 							<span class="panel-value interactive">
@@ -93,8 +93,8 @@
 							</div>
 						</div>
 
-						<p v-if="emoteMenuFeedback" class="panel-feedback" :class="{ error: emoteMenuFeedbackError }">
-							{{ emoteMenuFeedback }}
+						<p v-if="emoteBarFeedback" class="panel-feedback" :class="{ error: emoteBarFeedbackError }">
+							{{ emoteBarFeedback }}
 						</p>
 					</div>
 				</div>
@@ -177,16 +177,17 @@ const showModifiers = useConfig<boolean>("chat.show_emote_modifiers", false);
 const compactTooltips = useConfig<boolean>("ui.compact_tooltips", false);
 const recentEmoteMode = useConfig<RecentEmoteBarMode>("chat.recent_emote_bar.mode", "recent");
 const recentEmoteScope = useConfig<RecentEmoteScope>("chat.recent_emote_bar.scope", "7tv");
+const tverinoAutoSave = useConfig<boolean>("chat.tverino.auto_save", false);
 const deletedMessages = useConfig<DeletedMessageMode>("chat.deleted_messages", 1);
 const chatTimestamps = useConfig<boolean>("chat.tverino.timestamps", false);
 const displaySeconds = useConfig<boolean>("chat.timestamp_with_seconds", false);
 const timestampFormat = useConfig<TimestampFormatKey>("chat.timestamp_format", "infer");
 const mentionStyle = useConfig<MentionStyle>("chat.colored_mentions", 1);
 const recentSentEmotes = useRecentSentEmotes();
-const emoteMenuExpanded = ref(false);
+const emoteBarExpanded = ref(false);
 const clearMostUsedChannelName = ref("");
-const emoteMenuFeedback = ref("");
-const emoteMenuFeedbackError = ref(false);
+const emoteBarFeedback = ref("");
+const emoteBarFeedbackError = ref(false);
 
 const channelLabel = computed(() => props.ctx.displayName || props.ctx.username || "Channel");
 const showModeratorSection = computed(
@@ -264,6 +265,15 @@ const settingsRows = computed<SettingsRow[]>(() => {
 			},
 		},
 		{
+			id: "auto-save",
+			label: "Auto Save Settings",
+			kind: "toggle",
+			enabled: tverinoAutoSave.value,
+			action: () => {
+				tverinoAutoSave.value = !tverinoAutoSave.value;
+			},
+		},
+		{
 			id: "deleted-messages",
 			label: "Deleted Messages",
 			kind: "value",
@@ -316,22 +326,22 @@ function cycleRecentEmoteMode(): void {
 		"most_used",
 		"combine",
 	]);
-	clearEmoteMenuFeedback();
+	clearEmoteBarFeedback();
 }
 
 function toggleRecentEmoteScope(): void {
 	recentEmoteScope.value = recentEmoteScope.value === "7tv" ? "all" : "7tv";
-	clearEmoteMenuFeedback();
+	clearEmoteBarFeedback();
 }
 
-function clearEmoteMenuFeedback(): void {
-	emoteMenuFeedback.value = "";
-	emoteMenuFeedbackError.value = false;
+function clearEmoteBarFeedback(): void {
+	emoteBarFeedback.value = "";
+	emoteBarFeedbackError.value = false;
 }
 
-function setEmoteMenuFeedback(message: string, error = false): void {
-	emoteMenuFeedback.value = message;
-	emoteMenuFeedbackError.value = error;
+function setEmoteBarFeedback(message: string, error = false): void {
+	emoteBarFeedback.value = message;
+	emoteBarFeedbackError.value = error;
 }
 
 function normalizeChannelName(value: string): string {
@@ -341,14 +351,14 @@ function normalizeChannelName(value: string): string {
 function handleClearAllEmoteHistory(): void {
 	recentSentEmotes.clearAll();
 	clearMostUsedChannelName.value = "";
-	setEmoteMenuFeedback("Cleared recent and most-used emotes.");
+	setEmoteBarFeedback("Cleared recent and most-used emotes.");
 }
 
 function handleClearMostUsedByChannelName(): void {
 	const rawChannelName = clearMostUsedChannelName.value.trim();
 	const normalizedChannelName = normalizeChannelName(rawChannelName);
 	if (!normalizedChannelName) {
-		setEmoteMenuFeedback("Enter a channel name first.", true);
+		setEmoteBarFeedback("Enter a channel name first.", true);
 		return;
 	}
 
@@ -365,12 +375,12 @@ function handleClearMostUsedByChannelName(): void {
 			: recentSentEmotes.clearMostUsedByChannelName(rawChannelName);
 
 	if (!didClear) {
-		setEmoteMenuFeedback(`No most-used emotes found for ${rawChannelName}.`, true);
+		setEmoteBarFeedback(`No most-used emotes found for ${rawChannelName}.`, true);
 		return;
 	}
 
 	clearMostUsedChannelName.value = "";
-	setEmoteMenuFeedback(`Cleared most-used emotes for ${rawChannelName}.`);
+	setEmoteBarFeedback(`Cleared most-used emotes for ${rawChannelName}.`);
 }
 
 function formatDeletedMessageDisplay(value: DeletedMessageMode): string {

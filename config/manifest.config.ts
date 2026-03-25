@@ -77,7 +77,7 @@ export async function getManifest(opt: ManifestOptions): Promise<Manifest.WebExt
 
 		// By default the extension is enabled only on Twitch and Twitch's GraphQL API
 		host_permissions: ["*://*.twitch.tv/*", "https://gql.twitch.tv/*"],
-		permissions: ["scripting", "storage", "activeTab"],
+		permissions: ["scripting", "storage", "activeTab", "downloads", "alarms"],
 		optional_permissions: ["management"],
 
 		// Declare YouTube as an optional host permission

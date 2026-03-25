@@ -51,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from "vue";
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { onKeyDown, until, useKeyModifier, useTimeout } from "@vueuse/core";
 import { debounceFn } from "@/common/Async";
@@ -164,14 +164,12 @@ onKeyDown("Escape", () => {
 });
 
 watch(
-	() => props.es.emotes,
-	() => {
-		filterEmotes(ctx.filter);
+	[() => props.es.emotes, () => ctx.filter] as const,
+	([, filter]) => {
+		filterEmotes(filter);
 	},
+	{ immediate: true },
 );
-watchEffect(() => {
-	filterEmotes(ctx.filter);
-});
 
 // IntersectionObserver to hide out-of-view emotes and throttle loading to view
 const loaded = reactive<Record<string, number>>({});

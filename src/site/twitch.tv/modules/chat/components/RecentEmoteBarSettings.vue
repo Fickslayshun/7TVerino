@@ -1,5 +1,5 @@
 <template>
-	<div class="seventv-recent-emote-settings">
+	<div class="seventv-recent-emote-bar-settings">
 		<section class="settings-card">
 			<header class="settings-card-header">Settings</header>
 
@@ -110,7 +110,7 @@ function handleClearMostUsedByChannel(): void {
 </script>
 
 <style scoped lang="scss">
-.seventv-recent-emote-settings {
+.seventv-recent-emote-bar-settings {
 	display: grid;
 	gap: 1rem;
 	padding-top: 0.4rem;

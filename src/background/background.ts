@@ -1,6 +1,7 @@
 import { HOSTNAME_SUPPORTED_REGEXP } from "@/common/Constant";
 import { log } from "@/common/Logger";
 import "./messaging";
+import "./settingsBackup";
 import "./sync";
 
 // Connect to Vite server

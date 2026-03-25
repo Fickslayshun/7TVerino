@@ -1,6 +1,15 @@
 # Patch Notes
 
-24/03/2026 - Fixes and tweaks
+25/03/2026
+- Chatbox now expands as message grows in length
+- Improved memory performance
+- Added Auto Save Settings setting
+- Renamed Emote Menu to Emote Bar
+- Added animations to Emote Bar
+- Updated emote queue system for Emote Bar
+- Most Used Emote Bar now requires 3 uses minimum of an emote
+
+24/03/2026
 - Added Chat Timestamps setting
 - Added the ability to clear most used emotes
 - 7TV emote menu now closes when chat is in focus
@@ -8,7 +17,7 @@
 - Updated Emote Bar in settings
 - Onboarding now uses simpler graphics by default
 
-22/03/2026 - Standard update
+22/03/2026
 - Added most used emote menu and ability to combine with recent
 - Removed raider highlights from settings
 - Removed quick send from settings and enabled it by default
@@ -16,7 +25,7 @@
 - Fixed bugs that occurred while having multiple streams open
 - Improved stability and fallbacks for 7TVerino tabs
 
-20/03/2026 - Updates and refinements
+20/03/2026
 - Improved performance and readiness
 - Added search bar to identity badge menu
 - Added review reward requests and report to channel points menu
@@ -26,7 +35,7 @@
 - Updated 7TVerino in settings to display properly
 - Sub badges now display the correct dates on hover
 
-18/03/2026 - Clean up and bug fixes
+18/03/2026
 - Improved saving of 7TVerino tabs and recent emotes
 - Fixed a bug causing 1hour chat history to not load
 - Fixed a bug causing the 7TV improved usercard to close when pressing a tab
@@ -37,21 +46,21 @@
 - Pressing Esc when replying now cancels the reply
 - Added respective channel username to the chatbox
 
-16/03/2026 - Extension overhaul
+16/03/2026
 - Renamed 7TVFixed to 7TVerino
 - Overhauled 7TVerino chat, enabled by default and no longer in Beta
 - Fixed bugs
 - Improved general performance
 
-09/03/2026 - 7TVerino Beta
+09/03/2026
 - Added '7TVerino BETA' setting
 
-08/03/2026 - Recent Emotes + Usercard Updates
+08/03/2026
 - Added 'Recent Emotes' setting
 - Added suspicious user section to 7TV improved usercards
 - Limited usercards to 1 per user
 
-07/03/2026 - Performance + QoL Updates
+07/03/2026
 - Improved general performance
 - Improved 'Performance Mode' setting
 - Added 'Click To Copy Username' setting
@@ -59,13 +68,13 @@
 - Fixed a bug causing emotes to be disabled in the chatbox when replying
 - Fixed a bug causing the 7TV improved usercard to move/close randomly
 
-06/03/2026 - Settings update and bug fix
+06/03/2026
 - Added '7TVerino' category within 7TV settings
 - Added 'Middle Click To Profile' setting
 - Added 'Disable Front Page' setting
 - Fixed subscription anniversary messages not being sent
 
-05/03/2026 - Initial Updates
+05/03/2026
 - Built in performance increases/fixes
 - Added experimental 'Performance' setting
 - Added 'Stream Title Hover' setting

@@ -6,7 +6,13 @@
 				class="seventv-recent-emote-bar"
 				:class="{ empty: !resolvedMostUsedEntries.length, 'most-used': true }"
 			>
-				<template v-if="resolvedMostUsedEntries.length">
+				<TransitionGroup
+					v-if="resolvedMostUsedEntries.length"
+					name="seventv-recent-emote-bar-item"
+					tag="div"
+					class="seventv-recent-emote-bar-items"
+					appear
+				>
 					<button
 						v-for="entry of resolvedMostUsedEntries"
 						:key="entry.key"
@@ -23,7 +29,7 @@
 							{{ formatUsageCount(entry.count) }}
 						</span>
 					</button>
-				</template>
+				</TransitionGroup>
 				<div v-else class="seventv-recent-emote-bar-empty">
 					{{ mostUsedEmptyStateText }}
 				</div>
@@ -34,7 +40,13 @@
 				class="seventv-recent-emote-bar"
 				:class="{ empty: !resolvedRecentEntries.length }"
 			>
-				<template v-if="resolvedRecentEntries.length">
+				<TransitionGroup
+					v-if="resolvedRecentEntries.length"
+					name="seventv-recent-emote-bar-item"
+					tag="div"
+					class="seventv-recent-emote-bar-items"
+					appear
+				>
 					<button
 						v-for="entry of resolvedRecentEntries"
 						:key="entry.key"
@@ -48,7 +60,7 @@
 							{{ formatUsageCount(entry.count) }}
 						</span>
 					</button>
-				</template>
+				</TransitionGroup>
 				<div v-else class="seventv-recent-emote-bar-empty">
 					{{ recentEmptyStateText }}
 				</div>
@@ -65,6 +77,7 @@ import { useChannelContext } from "@/composable/channel/useChannelContext";
 import { useChatEmotes } from "@/composable/chat/useChatEmotes";
 import { useChatMessages } from "@/composable/chat/useChatMessages";
 import {
+	RECENT_EMOTE_BAR_LIMIT,
 	type RecentSentEmoteEntry,
 	type RecentSentEmoteUsageEntry,
 	useRecentSentEmotes,
@@ -82,6 +95,7 @@ mountEl.className = "seventv-recent-emote-bar-host";
 const mounted = ref(false);
 const textAreaEl = ref<HTMLElement | null>(null);
 const resizeObserver = new ResizeObserver(() => syncTextareaLayout());
+let observingMountEl = false;
 
 const isEnabled = computed(() => recentSentEmotes.isEnabled.value);
 const showRecentBar = computed(() => recentSentEmotes.showRecentBar.value);
@@ -94,10 +108,10 @@ const messages = useChatMessages(channelCtx);
 const resolvedMostUsedEntries = computed(() => resolveDisplayEntries(recentSentEmotes.getMostUsedEntries(channelID.value)));
 const resolvedRecentEntries = computed(() => {
 	const entries = resolveDisplayEntries(recentSentEmotes.getEntries(channelID.value));
-	if (!(showRecentBar.value && showMostUsedBar.value)) return entries;
+	if (!(showRecentBar.value && showMostUsedBar.value)) return entries.slice(0, RECENT_EMOTE_BAR_LIMIT);
 
 	const mostUsedKeys = new Set(resolvedMostUsedEntries.value.map((entry) => entry.key));
-	return entries.filter((entry) => !mostUsedKeys.has(entry.key));
+	return entries.filter((entry) => !mostUsedKeys.has(entry.key)).slice(0, RECENT_EMOTE_BAR_LIMIT);
 });
 const recentEmptyStateText = computed(
 	() => "Recent emotes appear here after you send them. Ctrl+Click or Alt+Click inserts.",
@@ -130,6 +144,7 @@ watchEffect(() => {
 		}
 
 		mounted.value = true;
+		startMountResizeObservation();
 		syncTextareaLayout();
 		return;
 	}
@@ -140,6 +155,7 @@ watchEffect(() => {
 	}
 
 	mounted.value = true;
+	startMountResizeObservation();
 	syncTextareaLayout();
 });
 
@@ -233,7 +249,7 @@ function formatUsageCount(count: number): string {
 
 onUnmounted(() => {
 	mounted.value = false;
-	resizeObserver.disconnect();
+	stopMountResizeObservation();
 	textAreaEl.value?.classList.remove("seventv-recent-emote-bar-active");
 	textAreaEl.value?.style.removeProperty("--seventv-recent-emote-bar-height");
 	mountEl.remove();
@@ -243,12 +259,23 @@ function getRecentBarChannelID(component: Twitch.ChatAutocompleteComponent): str
 	return component.props?.channelID ?? component.componentRef?.props?.channelID ?? "";
 }
 
+function startMountResizeObservation(): void {
+	if (observingMountEl || !mountEl.isConnected) return;
+
+	resizeObserver.observe(mountEl);
+	observingMountEl = true;
+}
+
+function stopMountResizeObservation(): void {
+	if (!observingMountEl) return;
+
+	resizeObserver.disconnect();
+	observingMountEl = false;
+}
+
 function syncTextareaLayout(): void {
 	const textArea = textAreaEl.value;
 	if (!textArea || !mountEl.isConnected) return;
-
-	resizeObserver.disconnect();
-	resizeObserver.observe(mountEl);
 
 	const height = Math.ceil(mountEl.getBoundingClientRect().height);
 	textArea.style.setProperty("--seventv-recent-emote-bar-height", `${height}px`);
@@ -266,7 +293,6 @@ function syncTextareaLayout(): void {
 .seventv-recent-emote-bar {
 	display: flex;
 	flex-wrap: nowrap;
-	gap: 0.35rem;
 	align-items: center;
 	width: 100%;
 	padding: 0.4rem 0.45rem 0.35rem;
@@ -284,6 +310,16 @@ function syncTextareaLayout(): void {
 	&.empty {
 		padding: 0.45rem 0.45rem 0.4rem;
 	}
+}
+
+.seventv-recent-emote-bar-items {
+	position: relative;
+	display: flex;
+	flex-wrap: nowrap;
+	gap: 0.35rem;
+	align-items: center;
+	min-width: 100%;
+	width: max-content;
 }
 
 .seventv-recent-emote-bar-item {
@@ -308,6 +344,27 @@ function syncTextareaLayout(): void {
 		background: rgb(255 255 255 / 0.08);
 		transform: translateY(-1px);
 	}
+}
+
+.seventv-recent-emote-bar-item-move,
+.seventv-recent-emote-bar-item-enter-active,
+.seventv-recent-emote-bar-item-leave-active {
+	transition:
+		transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+		opacity 180ms ease,
+		filter 180ms ease;
+}
+
+.seventv-recent-emote-bar-item-enter-from,
+.seventv-recent-emote-bar-item-leave-to {
+	opacity: 0;
+	filter: blur(0.2rem);
+	transform: translateY(0.3rem) scale(0.9);
+}
+
+.seventv-recent-emote-bar-item-leave-active {
+	position: absolute;
+	pointer-events: none;
 }
 
 .seventv-recent-emote-bar-count-pill {

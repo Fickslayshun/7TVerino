@@ -1,3 +1,5 @@
+import { downloadSettingsBackupBlob } from "@/common/settingsBackup";
+
 // Handle messaging from downstream
 
 let shouldReloadOnUpdate = false;
@@ -49,6 +51,28 @@ chrome.runtime.onMessage.addListener((msg, _, reply) => {
 				});
 			});
 
+			break;
+		}
+		case "settings-backup-download": {
+			void downloadSettingsBackupBlob(
+				new Blob([msg.data?.text ?? ""], {
+					type: msg.data?.mimeType || "application/json",
+				}),
+			)
+				.then(() => {
+					reply({
+						ok: true,
+					});
+				})
+				.catch((error: unknown) => {
+					reply({
+						ok: false,
+						error:
+							error instanceof Error && error.message.trim()
+								? error.message
+								: "Settings export download failed",
+					});
+				});
 			break;
 		}
 		case "twitch-redeem-custom-reward": {

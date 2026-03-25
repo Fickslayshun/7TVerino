@@ -1,7 +1,13 @@
 import { computed, ref, watch } from "vue";
-import { useConfig } from "@/composable/useSettings";
+import { useConfig, waitForSettingsBootstrap } from "@/composable/useSettings";
 
 export const RECENT_EMOTE_BAR_LIMIT = 6;
+const RECENT_EMOTE_BAR_HISTORY_LIMIT = 24;
+const RECENT_EMOTE_BAR_MOST_USED_MIN_COUNT = 3;
+// The bar only renders a few entries, so keep the backing store bounded to avoid
+// unbounded in-memory maps and large localStorage rewrites over time.
+const RECENT_EMOTE_BAR_CHANNEL_LIMIT = 64;
+const RECENT_EMOTE_BAR_USAGE_ENTRY_LIMIT = 96;
 
 export type RecentEmoteBarScope = "7tv" | "all";
 export type RecentEmoteBarMode = "none" | "recent" | "most_used" | "combine";
@@ -49,7 +55,7 @@ interface RecentSentEmoteUsageState {
 	timestamps: Map<string, number>;
 }
 
-interface RecentSentEmoteChannelMeta {
+export interface RecentSentEmoteChannelMeta {
 	username?: string;
 	displayName?: string;
 }
@@ -65,7 +71,13 @@ interface RecentSentEmoteChannelMetaSnapshot {
 
 const rawMode = useConfig<RecentEmoteBarMode | string>("chat.recent_emote_bar.mode", "recent");
 const scope = useConfig<RecentEmoteBarScope>("chat.recent_emote_bar.scope", "7tv");
-const legacyHistory = useConfig<Map<string, RecentSentEmoteEntry[]>>("chat.recent_emote_bar.history", new Map());
+const persistedMirrorVersion = useConfig<number>("chat.recent_emote_bar.export_version", 0);
+const persistedHistory = useConfig<Map<string, RecentSentEmoteEntry[]>>("chat.recent_emote_bar.history", new Map());
+const persistedUsage = useConfig<Map<string, RecentSentEmoteUsageEntry[]>>("chat.recent_emote_bar.usage", new Map());
+const persistedChannelMeta = useConfig<Map<string, RecentSentEmoteChannelMeta>>(
+	"chat.recent_emote_bar.channel_meta",
+	new Map(),
+);
 const history = ref<Map<string, RecentSentEmoteEntry[]>>(new Map());
 const historyTimestamps = ref<Map<string, number>>(new Map());
 const usageHistory = ref<Map<string, RecentSentEmoteUsageEntry[]>>(new Map());
@@ -81,7 +93,8 @@ const TOKEN_EDGE_PUNCTUATION = /^[`~!@#$%^&*()\-+=\[\]{}\\|;:'",.<>/?]+|[`~!@#$%
 
 let initialized = false;
 let storageListenerBound = false;
-let legacyMigrationWatcherBound = false;
+let persistentStateWatcherBound = false;
+let settingsBootstrapResolved = false;
 
 function emptyHistoryState(): RecentSentEmoteHistoryState {
 	return {
@@ -141,10 +154,54 @@ function normalizeEntries(entries: RecentSentEmoteEntry[] | null | undefined): R
 
 		seen.add(key);
 		out.push(normalized);
-		if (out.length >= RECENT_EMOTE_BAR_LIMIT) break;
+		if (out.length >= RECENT_EMOTE_BAR_HISTORY_LIMIT) break;
 	}
 
 	return out;
+}
+
+function sortChannelIDsByFreshness(channelIDs: Iterable<string>, timestamps: Map<string, number>): string[] {
+	return Array.from(channelIDs).sort(
+		(a, b) => (timestamps.get(b) ?? 0) - (timestamps.get(a) ?? 0) || a.localeCompare(b),
+	);
+}
+
+function pruneHistoryChannels(state: RecentSentEmoteHistoryState): RecentSentEmoteHistoryState {
+	if (state.history.size <= RECENT_EMOTE_BAR_CHANNEL_LIMIT) return state;
+
+	const keepChannelIDs = new Set(
+		sortChannelIDsByFreshness(state.history.keys(), state.timestamps).slice(0, RECENT_EMOTE_BAR_CHANNEL_LIMIT),
+	);
+	const nextState = emptyHistoryState();
+
+	for (const channelID of keepChannelIDs) {
+		const entries = state.history.get(channelID);
+		if (!entries?.length) continue;
+
+		nextState.history.set(channelID, entries);
+		nextState.timestamps.set(channelID, state.timestamps.get(channelID) ?? 0);
+	}
+
+	return nextState;
+}
+
+function pruneUsageChannels(state: RecentSentEmoteUsageState): RecentSentEmoteUsageState {
+	if (state.history.size <= RECENT_EMOTE_BAR_CHANNEL_LIMIT) return state;
+
+	const keepChannelIDs = new Set(
+		sortChannelIDsByFreshness(state.history.keys(), state.timestamps).slice(0, RECENT_EMOTE_BAR_CHANNEL_LIMIT),
+	);
+	const nextState = emptyUsageState();
+
+	for (const channelID of keepChannelIDs) {
+		const entries = state.history.get(channelID);
+		if (!entries?.length) continue;
+
+		nextState.history.set(channelID, entries);
+		nextState.timestamps.set(channelID, state.timestamps.get(channelID) ?? 0);
+	}
+
+	return nextState;
 }
 
 function normalizeUsageEntry(
@@ -187,7 +244,7 @@ function normalizeUsageEntries(entries: RecentSentEmoteUsageEntry[] | null | und
 		deduped.set(key, { ...normalized });
 	}
 
-	return Array.from(deduped.values()).sort(sortUsageEntries);
+	return Array.from(deduped.values()).sort(sortUsageEntries).slice(0, RECENT_EMOTE_BAR_USAGE_ENTRY_LIMIT);
 }
 
 function normalizeHistoryState(
@@ -240,7 +297,7 @@ function normalizeSnapshot(value: unknown): RecentSentEmoteHistoryState {
 		out.timestamps.set(channelID, typeof updatedAt === "number" && Number.isFinite(updatedAt) ? updatedAt : 0);
 	}
 
-	return out;
+	return pruneHistoryChannels(out);
 }
 
 function normalizeUsageSnapshot(value: unknown): RecentSentEmoteUsageState {
@@ -269,7 +326,7 @@ function normalizeUsageSnapshot(value: unknown): RecentSentEmoteUsageState {
 		out.timestamps.set(channelID, typeof updatedAt === "number" && Number.isFinite(updatedAt) ? updatedAt : 0);
 	}
 
-	return out;
+	return pruneUsageChannels(out);
 }
 
 function buildSnapshot(state: RecentSentEmoteHistoryState): RecentSentEmoteHistorySnapshot {
@@ -321,6 +378,39 @@ function areUsageEntriesEqual(
 		) {
 			return false;
 		}
+	}
+
+	return true;
+}
+
+function isSameUsageMap(
+	currentHistory: Map<string, RecentSentEmoteUsageEntry[]>,
+	nextHistory: Map<string, RecentSentEmoteUsageEntry[]>,
+): boolean {
+	if (currentHistory.size !== nextHistory.size) return false;
+
+	for (const [channelID, entries] of currentHistory) {
+		if (!areUsageEntriesEqual(entries, nextHistory.get(channelID))) return false;
+	}
+
+	return true;
+}
+
+function areChannelMetaEqual(
+	a: RecentSentEmoteChannelMeta | undefined,
+	b: RecentSentEmoteChannelMeta | undefined,
+): boolean {
+	return a?.username === b?.username && a?.displayName === b?.displayName;
+}
+
+function isSameHistoryMap(
+	currentHistory: Map<string, RecentSentEmoteEntry[]>,
+	nextHistory: Map<string, RecentSentEmoteEntry[]>,
+): boolean {
+	if (currentHistory.size !== nextHistory.size) return false;
+
+	for (const [channelID, entries] of currentHistory) {
+		if (!areEntriesEqual(entries, nextHistory.get(channelID))) return false;
 	}
 
 	return true;
@@ -395,6 +485,51 @@ function normalizeChannelMetaState(
 	}
 
 	return out;
+}
+
+function isSameChannelMetaState(
+	currentState: Map<string, RecentSentEmoteChannelMeta>,
+	nextState: Map<string, RecentSentEmoteChannelMeta>,
+): boolean {
+	if (currentState.size !== nextState.size) return false;
+
+	for (const [channelID, meta] of currentState) {
+		if (!areChannelMetaEqual(meta, nextState.get(channelID))) return false;
+	}
+
+	return true;
+}
+
+function createCurrentTimestampMap(channelIDs: Iterable<string>): Map<string, number> {
+	const out = new Map<string, number>();
+	let nextTimestamp = Date.now();
+
+	for (const channelID of channelIDs) {
+		if (typeof channelID !== "string" || !channelID) continue;
+
+		out.set(channelID, nextTimestamp);
+		nextTimestamp += 1;
+	}
+
+	return out;
+}
+
+function hasAnyRuntimeState(): boolean {
+	return currentHistoryState().history.size > 0 || currentUsageState().history.size > 0 || channelMeta.value.size > 0;
+}
+
+function hasAnyPersistedMirrorData(): boolean {
+	return (
+		persistedHistory.value.size > 0 ||
+		persistedUsage.value.size > 0 ||
+		persistedChannelMeta.value.size > 0
+	);
+}
+
+function markPersistedMirrorVersion(): void {
+	if (!settingsBootstrapResolved) return;
+
+	persistedMirrorVersion.value = Date.now();
 }
 
 function normalizeChannelMetaSnapshot(value: unknown): Map<string, RecentSentEmoteChannelMeta> {
@@ -487,6 +622,14 @@ function applyUsageState(nextState: RecentSentEmoteUsageState): boolean {
 
 	usageHistory.value = normalized.history;
 	usageHistoryTimestamps.value = normalized.timestamps;
+	return true;
+}
+
+function applyChannelMetaState(nextState: Map<string, RecentSentEmoteChannelMeta>): boolean {
+	const normalized = normalizeChannelMetaState(nextState.entries());
+	if (isSameChannelMetaState(channelMeta.value, normalized)) return false;
+
+	channelMeta.value = normalized;
 	return true;
 }
 
@@ -590,7 +733,101 @@ function writeUsageState(storage: Storage, key: string, state: RecentSentEmoteUs
 	}
 }
 
+function persistHistoryConfigState(nextState = currentHistoryState()): boolean {
+	if (!settingsBootstrapResolved) return false;
+
+	const normalizedConfigState = normalizeHistoryState(persistedHistory.value.entries());
+	if (isSameHistoryMap(normalizedConfigState.history, nextState.history)) return false;
+
+	persistedHistory.value = new Map(nextState.history);
+	return true;
+}
+
+function persistUsageConfigState(nextState = currentUsageState()): boolean {
+	if (!settingsBootstrapResolved) return false;
+
+	const normalizedConfigState = normalizeUsageState(persistedUsage.value.entries());
+	if (isSameUsageMap(normalizedConfigState.history, nextState.history)) return false;
+
+	persistedUsage.value = new Map(nextState.history);
+	return true;
+}
+
+function persistChannelMetaConfigState(nextState = normalizeChannelMetaState(channelMeta.value.entries())): boolean {
+	if (!settingsBootstrapResolved) return false;
+
+	const normalizedConfigState = normalizeChannelMetaState(persistedChannelMeta.value.entries());
+	if (isSameChannelMetaState(normalizedConfigState, nextState)) return false;
+
+	persistedChannelMeta.value = new Map(nextState);
+	return true;
+}
+
+function mirrorRuntimeToPersistedConfig(): void {
+	if (!settingsBootstrapResolved) return;
+
+	const didPersistHistory = persistHistoryConfigState(currentHistoryState());
+	const didPersistUsage = persistUsageConfigState(currentUsageState());
+	const didPersistChannelMeta = persistChannelMetaConfigState(normalizeChannelMetaState(channelMeta.value.entries()));
+	if (didPersistHistory || didPersistUsage || didPersistChannelMeta || (persistedMirrorVersion.value === 0 && hasAnyRuntimeState())) {
+		markPersistedMirrorVersion();
+	}
+}
+
+function syncRuntimeFromPersistedConfig(): void {
+	if (!settingsBootstrapResolved) return;
+
+	const hasFullPersistedState = persistedMirrorVersion.value > 0;
+	const importedHistory = normalizeHistoryState(persistedHistory.value.entries()).history;
+	const importedUsage = normalizeUsageState(persistedUsage.value.entries()).history;
+	const importedChannelMeta = normalizeChannelMetaState(persistedChannelMeta.value.entries());
+	if (!hasFullPersistedState && !hasAnyPersistedMirrorData()) {
+		if (hasAnyRuntimeState()) {
+			mirrorRuntimeToPersistedConfig();
+		}
+
+		return;
+	}
+
+	if ((hasFullPersistedState || importedHistory.size > 0) && !isSameHistoryMap(currentHistoryState().history, importedHistory)) {
+		const importedState = normalizeHistoryState(
+			importedHistory.entries(),
+			createCurrentTimestampMap(importedHistory.keys()).entries(),
+		);
+		applyHistoryState(importedState);
+		persistHistoryState(importedState);
+	}
+
+	if ((hasFullPersistedState || importedUsage.size > 0) && !isSameUsageMap(currentUsageState().history, importedUsage)) {
+		const importedState = normalizeUsageState(
+			importedUsage.entries(),
+			createCurrentTimestampMap(importedUsage.keys()).entries(),
+		);
+		applyUsageState(importedState);
+		persistUsageState(importedState);
+	}
+
+	if ((hasFullPersistedState || importedChannelMeta.size > 0) && !isSameChannelMetaState(channelMeta.value, importedChannelMeta)) {
+		applyChannelMetaState(importedChannelMeta);
+		persistChannelMetaState(importedChannelMeta);
+	}
+
+	if (!hasFullPersistedState) {
+		mirrorRuntimeToPersistedConfig();
+	}
+}
+
+void waitForSettingsBootstrap().finally(() => {
+	settingsBootstrapResolved = true;
+	if (!initialized) return;
+
+	bindPersistentStateWatchers();
+	syncRuntimeFromPersistedConfig();
+});
+
 function persistHistoryState(nextState = currentHistoryState()): void {
+	persistHistoryConfigState(nextState);
+	markPersistedMirrorVersion();
 	if (typeof window === "undefined") return;
 
 	writeHistoryState(window.sessionStorage, RECENT_EMOTE_HISTORY_SESSION_KEY, nextState);
@@ -601,15 +838,20 @@ function persistHistoryState(nextState = currentHistoryState()): void {
 	);
 	applyHistoryState(mergedPersistentState);
 	writeHistoryState(window.localStorage, RECENT_EMOTE_HISTORY_STORAGE_KEY, mergedPersistentState);
+	persistHistoryConfigState(mergedPersistentState);
 }
 
 function persistUsageState(nextState = currentUsageState()): void {
+	persistUsageConfigState(nextState);
+	markPersistedMirrorVersion();
 	if (typeof window === "undefined") return;
 
 	writeUsageState(window.localStorage, RECENT_EMOTE_USAGE_STORAGE_KEY, nextState);
 }
 
 function persistChannelMetaState(nextState = normalizeChannelMetaState(channelMeta.value.entries())): void {
+	persistChannelMetaConfigState(nextState);
+	markPersistedMirrorVersion();
 	if (typeof window === "undefined") return;
 
 	writeChannelMetaState(window.localStorage, RECENT_EMOTE_CHANNEL_META_STORAGE_KEY, nextState);
@@ -639,9 +881,11 @@ function bindStorageListener(): void {
 		}
 
 		if (ev.key === RECENT_EMOTE_CHANNEL_META_STORAGE_KEY) {
-			channelMeta.value = mergeChannelMetaStates(
+			applyChannelMetaState(
+				mergeChannelMetaStates(
 				channelMeta.value,
 				readChannelMetaState(window.localStorage, RECENT_EMOTE_CHANNEL_META_STORAGE_KEY),
+				),
 			);
 		}
 	});
@@ -649,23 +893,18 @@ function bindStorageListener(): void {
 	storageListenerBound = true;
 }
 
-function bindLegacyMigrationWatcher(): void {
-	if (legacyMigrationWatcherBound) return;
+function bindPersistentStateWatchers(): void {
+	if (persistentStateWatcherBound) return;
 
 	watch(
-		legacyHistory,
-		(nextHistory) => {
-			const legacyState = normalizeHistoryState(nextHistory.entries());
-			if (!legacyState.history.size) return;
-
-			const mergedState = mergeHistoryStates(legacyState, currentHistoryState());
-			if (!applyHistoryState(mergedState)) return;
-			persistHistoryState(mergedState);
+		[persistedMirrorVersion, persistedHistory, persistedUsage, persistedChannelMeta],
+		() => {
+			syncRuntimeFromPersistedConfig();
 		},
 		{ immediate: true },
 	);
 
-	legacyMigrationWatcherBound = true;
+	persistentStateWatcherBound = true;
 }
 
 function ensureInitialized(): void {
@@ -677,16 +916,39 @@ function ensureInitialized(): void {
 	);
 
 	applyHistoryState(mergedState);
-	persistHistoryState(mergedState);
+	if (settingsBootstrapResolved) {
+		writeHistoryState(window.sessionStorage, RECENT_EMOTE_HISTORY_SESSION_KEY, mergedState);
+
+		const mergedPersistentState = mergeHistoryStates(
+			readHistoryState(window.localStorage, RECENT_EMOTE_HISTORY_STORAGE_KEY),
+			mergedState,
+		);
+		applyHistoryState(mergedPersistentState);
+		writeHistoryState(window.localStorage, RECENT_EMOTE_HISTORY_STORAGE_KEY, mergedPersistentState);
+	} else {
+		persistHistoryState(mergedState);
+	}
 	const mergedUsageState = mergeUsageStates(readUsageState(window.localStorage, RECENT_EMOTE_USAGE_STORAGE_KEY));
 	applyUsageState(mergedUsageState);
-	persistUsageState(mergedUsageState);
-	channelMeta.value = normalizeChannelMetaState(
+	if (settingsBootstrapResolved) {
+		writeUsageState(window.localStorage, RECENT_EMOTE_USAGE_STORAGE_KEY, mergedUsageState);
+	} else {
+		persistUsageState(mergedUsageState);
+	}
+	const initialChannelMetaState = normalizeChannelMetaState(
 		readChannelMetaState(window.localStorage, RECENT_EMOTE_CHANNEL_META_STORAGE_KEY).entries(),
 	);
-	persistChannelMetaState(channelMeta.value);
+	applyChannelMetaState(initialChannelMetaState);
+	if (settingsBootstrapResolved) {
+		writeChannelMetaState(window.localStorage, RECENT_EMOTE_CHANNEL_META_STORAGE_KEY, initialChannelMetaState);
+	} else {
+		persistChannelMetaState(initialChannelMetaState);
+	}
 	bindStorageListener();
-	bindLegacyMigrationWatcher();
+	if (settingsBootstrapResolved) {
+		bindPersistentStateWatchers();
+		syncRuntimeFromPersistedConfig();
+	}
 	initialized = true;
 }
 
@@ -724,8 +986,8 @@ function rememberChannel(channelID: string, meta?: RecentSentEmoteChannelMeta): 
 
 	const nextState = new Map(channelMeta.value);
 	nextState.set(channelID, normalized);
-	channelMeta.value = normalizeChannelMetaState(nextState.entries());
-	persistChannelMetaState(channelMeta.value);
+	applyChannelMetaState(nextState);
+	persistChannelMetaState(nextState);
 }
 
 function getEntries(channelID: string): RecentSentEmoteEntry[] {
@@ -739,7 +1001,9 @@ function getMostUsedEntries(channelID: string): RecentSentEmoteUsageEntry[] {
 	if (!channelID) return [];
 
 	ensureInitialized();
-	return normalizeUsageEntries(usageHistory.value.get(channelID)).slice(0, RECENT_EMOTE_BAR_LIMIT);
+	return normalizeUsageEntries(usageHistory.value.get(channelID))
+		.filter((entry) => entry.count >= RECENT_EMOTE_BAR_MOST_USED_MIN_COUNT)
+		.slice(0, RECENT_EMOTE_BAR_LIMIT);
 }
 
 function scopeAllows(provider: RecentSentEmoteProvider, value = scope.value): boolean {
@@ -768,19 +1032,17 @@ function resolveEmoteToken(token: string, activeEmotes: Record<string, SevenTV.A
 function clearAll(): void {
 	ensureInitialized();
 
-	history.value = new Map();
-	historyTimestamps.value = new Map();
-	usageHistory.value = new Map();
-	usageHistoryTimestamps.value = new Map();
-	channelMeta.value = new Map();
-	legacyHistory.value = new Map();
+	const nextHistoryState = emptyHistoryState();
+	applyHistoryState(nextHistoryState);
+	persistHistoryState(nextHistoryState);
 
-	if (typeof window === "undefined") return;
+	const nextUsageState = emptyUsageState();
+	applyUsageState(nextUsageState);
+	persistUsageState(nextUsageState);
 
-	window.sessionStorage.removeItem(RECENT_EMOTE_HISTORY_SESSION_KEY);
-	window.localStorage.removeItem(RECENT_EMOTE_HISTORY_STORAGE_KEY);
-	window.localStorage.removeItem(RECENT_EMOTE_USAGE_STORAGE_KEY);
-	window.localStorage.removeItem(RECENT_EMOTE_CHANNEL_META_STORAGE_KEY);
+	const nextChannelMetaState = new Map<string, RecentSentEmoteChannelMeta>();
+	applyChannelMetaState(nextChannelMetaState);
+	persistChannelMetaState(nextChannelMetaState);
 }
 
 function clearMostUsed(channelID: string): boolean {

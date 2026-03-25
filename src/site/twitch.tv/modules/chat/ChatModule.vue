@@ -141,11 +141,19 @@ defineExpose({
 
 <script lang="ts">
 import { markRaw } from "vue";
+import { log } from "@/common/Logger";
+import { setSettingsBackupAutosaveEnabled } from "@/common/settingsBackup";
 import { HighlightDef } from "@/composable/chat/useChatHighlights";
-import type { RecentEmoteBarMode, RecentEmoteBarScope, RecentSentEmoteEntry } from "@/composable/chat/useRecentSentEmotes";
+import type {
+	RecentEmoteBarMode,
+	RecentEmoteBarScope,
+	RecentSentEmoteChannelMeta,
+	RecentSentEmoteEntry,
+	RecentSentEmoteUsageEntry,
+} from "@/composable/chat/useRecentSentEmotes";
 import { declareConfig, useConfig } from "@/composable/useSettings";
 import PersonalTimeoutManager from "./components/PersonalTimeoutManager.vue";
-import RecentEmoteMenuSettings from "./components/RecentEmoteMenuSettings.vue";
+import RecentEmoteBarSettings from "./components/RecentEmoteBarSettings.vue";
 import SettingsConfigHighlights from "@/app/settings/SettingsConfigHighlights.vue";
 
 export type TimestampFormatKey = "infer" | "12" | "24";
@@ -416,25 +424,40 @@ export const config = [
 	}),
 	declareConfig("chat.recent_emote_bar.panel", "CUSTOM", {
 		path: ["7TVerino", "Chat", 5],
-		label: "Emote Menu",
-		hint: "Configure the recent and most-used emote menu shown above chat.",
+		label: "Emote Bar",
+		hint: "Configure the recent and most-used emote bar shown above chat.",
 		defaultValue: false,
 		persist: false,
 		serialize: false,
 		custom: {
-			component: markRaw(RecentEmoteMenuSettings),
+			component: markRaw(RecentEmoteBarSettings),
 			gridMode: "new-row",
 			collapsible: true,
 			defaultExpanded: false,
 		},
 	}),
+	declareConfig("chat.tverino.auto_save", "TOGGLE", {
+		path: ["7TVerino", "Chat", 6],
+		label: "Auto Save Settings",
+		hint: "Refresh 7tverino_settings.json every hour while Twitch is open.",
+		defaultValue: false,
+		effect(value) {
+			void setSettingsBackupAutosaveEnabled(Boolean(value)).catch((err) => {
+				log.error("<SettingsBackup>", "failed to sync auto-save setting", (err as Error).message);
+			});
+		},
+	}),
 	declareConfig<RecentEmoteBarMode>("chat.recent_emote_bar.mode", "NONE", {
-		label: "Emote Menu Mode",
+		label: "Emote Bar Mode",
 		defaultValue: "recent",
 	}),
 	declareConfig<RecentEmoteBarScope>("chat.recent_emote_bar.scope", "NONE", {
-		label: "Emote Menu Scope",
+		label: "Emote Bar Scope",
 		defaultValue: "7tv",
+	}),
+	declareConfig<number>("chat.recent_emote_bar.export_version", "NONE", {
+		label: "Recent Emote Export Version",
+		defaultValue: 0,
 	}),
 	declareConfig<Map<string, RecentSentEmoteEntry[]>>("chat.recent_emote_bar.history", "NONE", {
 		label: "Recent Emote History",
@@ -443,6 +466,22 @@ export const config = [
 			String(v) !== "[object Map]"
 				? new Map<string, RecentSentEmoteEntry[]>()
 				: (v as Map<string, RecentSentEmoteEntry[]>),
+	}),
+	declareConfig<Map<string, RecentSentEmoteUsageEntry[]>>("chat.recent_emote_bar.usage", "NONE", {
+		label: "Recent Emote Usage",
+		defaultValue: new Map(),
+		transform: (v) =>
+			String(v) !== "[object Map]"
+				? new Map<string, RecentSentEmoteUsageEntry[]>()
+				: (v as Map<string, RecentSentEmoteUsageEntry[]>),
+	}),
+	declareConfig<Map<string, RecentSentEmoteChannelMeta>>("chat.recent_emote_bar.channel_meta", "NONE", {
+		label: "Recent Emote Channel Metadata",
+		defaultValue: new Map(),
+		transform: (v) =>
+			String(v) !== "[object Map]"
+				? new Map<string, RecentSentEmoteChannelMeta>()
+				: (v as Map<string, RecentSentEmoteChannelMeta>),
 	}),
 	declareConfig("chat.tverino.beta_notice", "NONE", {
 		path: ["7TVerino", "Chat", 8],

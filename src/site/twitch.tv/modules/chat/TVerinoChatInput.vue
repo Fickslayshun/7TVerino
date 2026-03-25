@@ -7,7 +7,13 @@
 					class="seventv-tverino-recents"
 					:class="{ empty: !resolvedMostUsedEntries.length, 'most-used': true }"
 				>
-					<template v-if="resolvedMostUsedEntries.length">
+					<TransitionGroup
+						v-if="resolvedMostUsedEntries.length"
+						name="seventv-tverino-recent-item"
+						tag="div"
+						class="seventv-tverino-recents-items"
+						appear
+					>
 						<button
 							v-for="entry of resolvedMostUsedEntries"
 							:key="entry.key"
@@ -24,7 +30,7 @@
 								{{ formatUsageCount(entry.count) }}
 							</span>
 						</button>
-					</template>
+					</TransitionGroup>
 					<div v-else class="seventv-tverino-recents-empty">
 						{{ mostUsedBarEmptyText }}
 					</div>
@@ -35,7 +41,13 @@
 					class="seventv-tverino-recents"
 					:class="{ empty: !resolvedRecentEntries.length }"
 				>
-					<template v-if="resolvedRecentEntries.length">
+					<TransitionGroup
+						v-if="resolvedRecentEntries.length"
+						name="seventv-tverino-recent-item"
+						tag="div"
+						class="seventv-tverino-recents-items"
+						appear
+					>
 						<button
 							v-for="entry of resolvedRecentEntries"
 							:key="entry.key"
@@ -49,7 +61,7 @@
 								{{ formatUsageCount(entry.count) }}
 							</span>
 						</button>
-					</template>
+					</TransitionGroup>
 					<div v-else class="seventv-tverino-recents-empty">
 						{{ recentBarEmptyText }}
 					</div>
@@ -114,20 +126,20 @@
 						<span class="seventv-tverino-badge-trigger-placeholder" aria-hidden="true"></span>
 					</span>
 				</button>
-				<input
+				<textarea
 					ref="inputRef"
 					v-model="value"
 					class="seventv-tverino-input-field"
 					:disabled="inputStatus.state !== 'connected'"
 					:placeholder="placeholder"
-					type="text"
+					rows="1"
 					autocomplete="off"
 					spellcheck="false"
 					@focus="onInputFocus"
 					@blur="onBlur"
 					@pointerdown="closeEmoteMenuFromInput"
 					@keydown="onKeyDown"
-				/>
+				></textarea>
 				<button
 					ref="brandButtonRef"
 					class="seventv-tverino-brand"
@@ -352,6 +364,7 @@ import { useAuthorEmoteSetRequests } from "@/composable/chat/useAuthorEmoteSetRe
 import { useChatMessageProcessor } from "@/composable/chat/useChatMessageProcessor";
 import { useChatMessages } from "@/composable/chat/useChatMessages";
 import {
+	RECENT_EMOTE_BAR_LIMIT,
 	type RecentSentEmoteEntry,
 	type RecentSentEmoteUsageEntry,
 	useRecentSentEmotes,
@@ -419,6 +432,7 @@ const AUTOCOMPLETION_MODE = {
 } as const;
 const TAB_AROUND_MATCH_COUNT = 3;
 const MESSAGE_HISTORY_LIMIT = 20;
+const TVERINO_INPUT_MAX_LINES = 6;
 
 const props = defineProps<{
 	ctx: ChannelContext;
@@ -465,7 +479,7 @@ const settingsMenu = useSettingsMenu();
 const emoteMenuCtx = useEmoteMenuContext();
 const autocompleteIndex = new ChatAutocompleteIndex();
 
-const inputRef = ref<HTMLInputElement | null>(null);
+const inputRef = ref<HTMLTextAreaElement | null>(null);
 const inputShellRef = ref<HTMLFormElement | null>(null);
 const channelPointsButtonRef = ref<HTMLButtonElement | null>(null);
 const badgeButtonRef = ref<HTMLButtonElement | null>(null);
@@ -499,6 +513,18 @@ let nativeClaimRequestToken = 0;
 let nativeClaimStartBalance: number | null = null;
 let nativeClaimAutoTriggered = false;
 let nativeChannelPointsMenuObserver: MutationObserver | null = null;
+let inputHeightSyncFrame = 0;
+let observedInputWidth = 0;
+const inputResizeObserver =
+	typeof ResizeObserver !== "undefined"
+		? new ResizeObserver((entries) => {
+				const nextWidth = entries[0]?.contentRect.width ?? 0;
+				if (!nextWidth || nextWidth === observedInputWidth) return;
+
+				observedInputWidth = nextWidth;
+				queueInputFieldHeightSync();
+		  })
+		: null;
 let syncingMessageHistoryValue = false;
 const {
 	channelPointsBalance,
@@ -1018,10 +1044,10 @@ function resolveRecentEntries(entries: (RecentSentEmoteEntry | RecentSentEmoteUs
 const resolvedMostUsedEntries = computed(() => resolveRecentEntries(recentSentEmotes.getMostUsedEntries(props.ctx.id)));
 const resolvedRecentEntries = computed(() => {
 	const entries = resolveRecentEntries(recentSentEmotes.getEntries(props.ctx.id));
-	if (!(showRecentBar.value && showMostUsedBar.value)) return entries;
+	if (!(showRecentBar.value && showMostUsedBar.value)) return entries.slice(0, RECENT_EMOTE_BAR_LIMIT);
 
 	const mostUsedKeys = new Set(resolvedMostUsedEntries.value.map((entry) => entry.key));
-	return entries.filter((entry) => !mostUsedKeys.has(entry.key));
+	return entries.filter((entry) => !mostUsedKeys.has(entry.key)).slice(0, RECENT_EMOTE_BAR_LIMIT);
 });
 const showRecentBar = computed(() => recentSentEmotes.showRecentBar.value);
 const showMostUsedBar = computed(() => recentSentEmotes.showMostUsedBar.value);
@@ -1702,6 +1728,38 @@ function closeNativeReplyTray(): void {
 	activeReplyTray.value?.close?.();
 }
 
+function syncInputFieldHeight(): void {
+	const input = inputRef.value;
+	if (!input) return;
+
+	input.style.height = "0px";
+
+	const styles = window.getComputedStyle(input);
+	const minHeight = Number.parseFloat(styles.minHeight) || 0;
+	const lineHeight = Number.parseFloat(styles.lineHeight) || 0;
+	const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
+	const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
+	const borderTop = Number.parseFloat(styles.borderTopWidth) || 0;
+	const borderBottom = Number.parseFloat(styles.borderBottomWidth) || 0;
+	const maxHeight =
+		lineHeight > 0
+			? lineHeight * TVERINO_INPUT_MAX_LINES + paddingTop + paddingBottom + borderTop + borderBottom
+			: input.scrollHeight;
+	const nextHeight = Math.max(minHeight, Math.min(input.scrollHeight, maxHeight));
+
+	input.style.height = `${nextHeight}px`;
+	input.style.overflowY = input.scrollHeight > maxHeight + 1 ? "auto" : "hidden";
+}
+
+function queueInputFieldHeightSync(): void {
+	if (inputHeightSyncFrame) return;
+
+	inputHeightSyncFrame = window.requestAnimationFrame(() => {
+		inputHeightSyncFrame = 0;
+		syncInputFieldHeight();
+	});
+}
+
 function clearBadgeTriggerAnimation(): void {
 	if (badgeTriggerStepTimeout !== null) {
 		window.clearTimeout(badgeTriggerStepTimeout);
@@ -2128,7 +2186,25 @@ watch(activeReply, (tray) => {
 	requestAnimationFrame(() => inputRef.value?.focus());
 });
 
+watch(
+	inputRef,
+	(input, previousInput) => {
+		if (previousInput) {
+			inputResizeObserver?.unobserve(previousInput);
+		}
+
+		if (input) {
+			observedInputWidth = input.getBoundingClientRect().width;
+			inputResizeObserver?.observe(input);
+		}
+
+		queueInputFieldHeightSync();
+	},
+	{ immediate: true },
+);
+
 watch(value, () => {
+	queueInputFieldHeightSync();
 	if (syncingMessageHistoryValue || messageHistoryIndex.value === -1) return;
 	resetMessageHistoryNavigation();
 });
@@ -2183,6 +2259,11 @@ onUnmounted(() => {
 	closeSettingsPanel();
 	resetNativeClaimState();
 	stopNativeChannelPointsMenuObserver();
+	inputResizeObserver?.disconnect();
+	if (inputHeightSyncFrame) {
+		window.cancelAnimationFrame(inputHeightSyncFrame);
+		inputHeightSyncFrame = 0;
+	}
 	emoteMenuCtx.open = false;
 	target.removeEventListener("tverino_chat_send_result", onSendResult);
 });
@@ -2302,7 +2383,6 @@ onUnmounted(() => {
 
 .seventv-tverino-recents {
 	display: flex;
-	gap: 0.35rem;
 	overflow-x: auto;
 	align-items: center;
 	width: 100%;
@@ -2320,6 +2400,16 @@ onUnmounted(() => {
 	&.empty {
 		padding: 0.34rem 0.45rem 0.3rem;
 	}
+}
+
+.seventv-tverino-recents-items {
+	position: relative;
+	display: flex;
+	flex-wrap: nowrap;
+	gap: 0.35rem;
+	align-items: center;
+	min-width: 100%;
+	width: max-content;
 }
 
 .seventv-tverino-recents-item {
@@ -2344,6 +2434,27 @@ onUnmounted(() => {
 		transform: translateY(-1px);
 		background: rgb(255 255 255 / 0.08);
 	}
+}
+
+.seventv-tverino-recent-item-move,
+.seventv-tverino-recent-item-enter-active,
+.seventv-tverino-recent-item-leave-active {
+	transition:
+		transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+		opacity 180ms ease,
+		filter 180ms ease;
+}
+
+.seventv-tverino-recent-item-enter-from,
+.seventv-tverino-recent-item-leave-to {
+	opacity: 0;
+	filter: blur(0.2rem);
+	transform: translateY(0.3rem) scale(0.9);
+}
+
+.seventv-tverino-recent-item-leave-active {
+	position: absolute;
+	pointer-events: none;
 }
 
 .seventv-tverino-recents-count-pill {
@@ -2394,27 +2505,31 @@ onUnmounted(() => {
 .seventv-tverino-input-shell {
 	position: relative;
 	display: grid;
-	grid-template-columns: 1fr auto;
-	align-items: center;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: stretch;
 	min-height: 4.7rem;
 	background: transparent;
 }
 
 .seventv-tverino-input-field {
+	display: block;
+	min-width: 0;
 	width: 100%;
-	height: 100%;
-	padding: 0 1rem 0 4.3rem;
+	min-height: 4.7rem;
+	padding: 1.15rem 1rem 0.85rem 4.3rem;
 	border: 0;
 	border-radius: 0;
 	background: transparent;
+	box-sizing: border-box;
 	color: var(--seventv-text-color-normal);
 	outline: none;
+	resize: none;
 	font-family: inherit;
 	font-size: 1.34rem;
 	font-weight: 400;
 	font-synthesis: none;
 	line-height: 1.5;
-	transform: translateY(-1px);
+	overflow-y: hidden;
 	transition:
 		color 120ms ease,
 		opacity 120ms ease;

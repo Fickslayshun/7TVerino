@@ -10,15 +10,15 @@
 				<div class="seventv-emote-menu-providers">
 					<template v-for="(b, key) in visibleProviders">
 						<div
-							v-if="b || key === activeProvider"
+							v-if="b || key === resolvedActiveProvider"
 							:key="key"
 							class="seventv-emote-menu-provider-icon"
-							:selected="key === activeProvider"
+							:selected="key === resolvedActiveProvider"
 							@click="activeProvider = key"
 						>
 							<Logo v-if="key !== 'FAVORITE'" :provider="key" />
 							<StarIcon v-else />
-							<span v-show="key === activeProvider">
+							<span v-show="key === resolvedActiveProvider">
 								<template v-if="key === 'PLATFORM'">{{ platform }}</template>
 								<template v-else>{{ key }}</template>
 							</span>
@@ -40,18 +40,16 @@
 
 			<!-- Emote menu body -->
 			<div
-				v-for="(_, key) in visibleProviders"
-				v-show="key === activeProvider"
-				:key="`${props.channelId ?? ctx.channelID}:${key}`"
+				v-if="resolvedActiveProvider"
+				:key="`${props.channelId ?? ctx.channelID}:${resolvedActiveProvider}`"
 				class="seventv-emote-menu-body"
 			>
 				<EmoteMenuTab
 					:channel-ctx="props.channelCtx"
 					:channel-id="props.channelId ?? ctx.channelID"
-					:provider="key"
-					:selected="key === activeProvider"
+					:provider="resolvedActiveProvider"
+					:selected="true"
 					@emote-clicked="emit('emote-click', $event)"
-					@provider-visible="onProviderVisibilityChange(key, $event)"
 					@toggle-settings="settingsContext.toggle()"
 					@toggle-native-menu="[toggle(), emit('toggle-native-menu')]"
 				/>
@@ -61,10 +59,12 @@
 </template>
 
 <script setup lang="ts">
-import { provide, reactive, ref, watch, watchEffect } from "vue";
+import { computed, provide, ref, watch, watchEffect } from "vue";
 import { onClickOutside, onKeyStroke, useEventListener, useKeyModifier } from "@vueuse/core";
 import { useStore } from "@/store/main";
 import { CHANNEL_CTX, type ChannelContext, useChannelContext } from "@/composable/channel/useChannelContext";
+import { useChatEmotes } from "@/composable/chat/useChatEmotes";
+import { useCosmetics } from "@/composable/useCosmetics";
 import { useConfig } from "@/composable/useSettings";
 import SearchIcon from "@/assets/svg/icons/SearchIcon.vue";
 import StarIcon from "@/assets/svg/icons/StarIcon.vue";
@@ -120,7 +120,12 @@ watch(
 );
 
 const settingsContext = useSettingsMenu();
-const { providers, platform } = useStore();
+const store = useStore();
+const { providers, platform } = store;
+const emotes = useChatEmotes(channelCtx);
+const cosmetics = useCosmetics(store.identity?.id ?? "");
+const favorites = useConfig<Set<string>>("ui.emote_menu.favorites");
+const PROVIDER_ORDER = ["FAVORITE", "7TV", "FFZ", "BTTV", "PLATFORM", "EMOJI"] as const satisfies readonly EmoteMenuTabName[];
 
 const searchInputRef = ref<HTMLInputElement | undefined>();
 
@@ -128,14 +133,90 @@ const isSearchInputEnabled = useConfig<boolean>("ui.emote_menu_search");
 const defaultTab = useConfig<EmoteMenuTabName>("ui.emote_menu.default_tab", "7TV");
 
 const activeProvider = ref<EmoteMenuTabName | null>(defaultTab.value);
-const visibleProviders = reactive<Record<EmoteMenuTabName, boolean>>({
-	FAVORITE: true,
-	"7TV": providers.has("7TV"),
-	FFZ: providers.has("FFZ"),
-	BTTV: providers.has("BTTV"),
-	PLATFORM: true,
-	EMOJI: true,
+const searchFilter = computed(() => ctx.filter.trim().toLowerCase());
+const personalSets = computed(() =>
+	Array.from(cosmetics.emoteSets?.values() ?? []).filter((set) => set.provider !== "EMOJI"),
+);
+
+function emoteMatchesFilter(emote: SevenTV.ActiveEmote, filter: string): boolean {
+	return !filter || emote.name.toLowerCase().includes(filter);
+}
+
+function setHasVisibleEmote(set: SevenTV.EmoteSet, filter: string): boolean {
+	if (!set.emotes.length) return false;
+	if (!filter) return true;
+
+	return set.emotes.some((emote) => emoteMatchesFilter(emote, filter));
+}
+
+function providerExists(provider: EmoteMenuTabName): boolean {
+	switch (provider) {
+		case "7TV":
+		case "FFZ":
+		case "BTTV":
+			return providers.has(provider);
+		default:
+			return true;
+	}
+}
+
+function providerHasVisibleContent(provider: EmoteMenuTabName, filter: string): boolean {
+	if (!providerExists(provider)) return false;
+
+	if (provider === "FAVORITE") {
+		if (!favorites.value?.size) return false;
+
+		for (const emoteID of favorites.value) {
+			const emote = emotes.find((ae) => ae.id === emoteID);
+			if (emote && emoteMatchesFilter(emote, filter)) return true;
+		}
+
+		return false;
+	}
+
+	for (const set of Object.values(emotes.byProvider(provider as SevenTV.Provider) ?? {})) {
+		if (setHasVisibleEmote(set, filter)) return true;
+	}
+
+	for (const set of personalSets.value) {
+		if (set.provider === provider && setHasVisibleEmote(set, filter)) return true;
+	}
+
+	return false;
+}
+
+const visibleProviders = computed<Record<EmoteMenuTabName, boolean>>(() => ({
+	FAVORITE: providerHasVisibleContent("FAVORITE", searchFilter.value),
+	"7TV": providerHasVisibleContent("7TV", searchFilter.value),
+	FFZ: providerHasVisibleContent("FFZ", searchFilter.value),
+	BTTV: providerHasVisibleContent("BTTV", searchFilter.value),
+	PLATFORM: providerHasVisibleContent("PLATFORM", searchFilter.value),
+	EMOJI: providerHasVisibleContent("EMOJI", searchFilter.value),
+}));
+const orderedVisibleProviders = computed(() =>
+	PROVIDER_ORDER.filter((provider) => visibleProviders.value[provider]),
+);
+const resolvedActiveProvider = computed<EmoteMenuTabName | null>(() => {
+	if (activeProvider.value && visibleProviders.value[activeProvider.value]) {
+		return activeProvider.value;
+	}
+
+	if (visibleProviders.value[defaultTab.value]) {
+		return defaultTab.value;
+	}
+
+	return orderedVisibleProviders.value[0] ?? null;
 });
+
+watch(
+	[resolvedActiveProvider, () => ctx.open] as const,
+	([provider, open]) => {
+		if (!open || provider === activeProvider.value) return;
+		activeProvider.value = provider;
+	},
+	{ immediate: true },
+);
+
 watchEffect(() => {
 	if (!containerRef.value) return;
 
@@ -158,32 +239,23 @@ onKeyStroke("e", (ev) => {
 
 // Up/Down Arrow iterates providers
 useEventListener("keydown", (ev) => {
+	if (!ctx.open) return;
 	if (ev.isComposing) return;
 	if (!["ArrowUp", "ArrowDown"].includes(ev.key)) return;
 
-	const cur = Object.keys(visibleProviders).indexOf(activeProvider.value ?? "7TV");
+	const visibleProviderList = orderedVisibleProviders.value;
+	const cur = visibleProviderList.indexOf(resolvedActiveProvider.value ?? defaultTab.value);
 	const next = ev.key === "ArrowUp" ? cur + 1 : cur - 1;
-	const nextProvider = Object.keys(visibleProviders)[next];
+	const nextProvider = visibleProviderList[next];
 
 	if (nextProvider) {
-		activeProvider.value = nextProvider as EmoteMenuTabName;
+		activeProvider.value = nextProvider;
 	}
 });
 
 // Toggle the menu's visibility
 function toggle() {
 	ctx.open = !ctx.open;
-}
-
-// Handle change in the visibility of a provider while using search
-// and if the current active provider has no content, switch to the next available
-function onProviderVisibilityChange(provider: EmoteMenuTabName, visible: boolean) {
-	visibleProviders[provider] = visible;
-	if (!visible && provider === activeProvider.value) {
-		activeProvider.value = (Object.entries(visibleProviders)
-			.slice(1)
-			.find(([, v]) => v)?.[0] ?? "7TV") as SevenTV.Provider;
-	}
 }
 
 onClickOutside(containerRef, (ev) => {
