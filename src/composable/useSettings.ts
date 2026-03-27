@@ -1,4 +1,4 @@
-import { Ref, customRef, reactive } from "vue";
+import { Ref, customRef, reactive, toRaw } from "vue";
 import { log } from "@/common/Logger";
 import { createSettingsExportBlob } from "@/common/settingsBackup";
 import { db } from "@/db/idb";
@@ -32,9 +32,14 @@ function toConfigRef<T extends SevenTV.SettingType>(key: string, defaultValue?: 
 				trigger();
 
 				if (n.persist !== false) {
+					const storedValue = toPersistableSettingValue(newVal);
+
 					// Write changes to the db
 					db.settings
-						.put({ key: key, type: typeof newVal, value: newVal, timestamp, serialize: n.serialize }, key)
+						.put(
+							{ key: key, type: typeof newVal, value: storedValue, timestamp, serialize: n.serialize },
+							key,
+						)
 						.catch((err) => log.error("failed to write setting", key, "to db:", err));
 				}
 
@@ -68,6 +73,41 @@ export async function fillSettings(s: SevenTV.Setting<SevenTV.SettingType>[]) {
 	}
 }
 
+function toPersistableSettingValue<T extends SevenTV.SettingType>(value: T): T {
+	return clonePersistableValue(value) as T;
+}
+
+function clonePersistableValue(value: unknown): unknown {
+	if (value === null || value === undefined) return value;
+
+	const valueType = typeof value;
+	if (valueType !== "object") return value;
+
+	const rawValue = toRaw(value);
+
+	if (rawValue instanceof Map) {
+		return new Map(
+			Array.from(rawValue.entries(), ([entryKey, entryValue]) => [entryKey, clonePersistableValue(entryValue)]),
+		);
+	}
+
+	if (rawValue instanceof Set) {
+		return new Set(Array.from(rawValue.values(), (entryValue) => clonePersistableValue(entryValue)));
+	}
+
+	if (rawValue instanceof Date) {
+		return new Date(rawValue.getTime());
+	}
+
+	if (Array.isArray(rawValue)) {
+		return rawValue.map((entryValue) => clonePersistableValue(entryValue));
+	}
+
+	return Object.fromEntries(
+		Object.entries(rawValue).map(([entryKey, entryValue]) => [entryKey, clonePersistableValue(entryValue)]),
+	);
+}
+
 export function waitForSettingsBootstrap(): Promise<void> {
 	return settingsBootstrap;
 }
@@ -82,10 +122,7 @@ export function getUnserializableSettings() {
 			continue;
 		}
 
-		if (
-			typeof node.defaultValue === "object" &&
-			!["Map", "Set"].includes(node.defaultValue.constructor.name)
-		) {
+		if (typeof node.defaultValue === "object" && !["Map", "Set"].includes(node.defaultValue.constructor.name)) {
 			out.push(node);
 			continue;
 		}

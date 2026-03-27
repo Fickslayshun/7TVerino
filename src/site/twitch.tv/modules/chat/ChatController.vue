@@ -95,6 +95,7 @@ import ChatTray from "./components/tray/ChatTray.vue";
 import { getTVerinoSelfMessageState } from "./tverinoPendingMessage";
 import { resolveTVerinoRemoteContext } from "./tverinoRemoteContexts";
 import { setTwitchHelixAuth } from "./twitchHelixAuth";
+import { ensureChannelCosmeticsApplied, shouldEnsureChannelCosmetics } from "./useTVerinoChannelCosmetics";
 import { useTVerinoChatTransport } from "./useTVerinoChatTransport";
 import ChatData from "@/app/chat/ChatData.vue";
 import BasicSystemMessage from "@/app/chat/msg/BasicSystemMessage.vue";
@@ -113,8 +114,11 @@ const props = defineProps<{
 const mod = getModule<"TWITCH", "chat">("chat")!;
 const { sendMessage: sendWorkerMessage } = useWorker();
 const store = useStore();
-const { sendChatMessage: sendTVerinoChatMessage, emitLocalMessage: emitTVerinoLocalMessage, getStatus } =
-	useTVerinoChatTransport();
+const {
+	sendChatMessage: sendTVerinoChatMessage,
+	emitLocalMessage: emitTVerinoLocalMessage,
+	getStatus,
+} = useTVerinoChatTransport();
 
 const { list, controller, room, presentation } = toRefs(props);
 
@@ -133,10 +137,12 @@ inputHostEl.id = "seventv-tverino-input";
 const inputContainerEl = ref<HTMLElement>(inputHostEl);
 const TVERINO_ACTIVE_VIEWPORT_CLASS = "seventv-tverino-active-viewport";
 const TVERINO_INPUT_ALERT_ACTIVE_CLASS = "seventv-tverino-has-native-alert";
+/* eslint-disable quotes */
 const NATIVE_PRIVATE_CALLOUT_SELECTOR = [
-	'[data-test-selector="chat-private-callout-queue__callout-container"]',
-	'[data-a-target="chat-private-callout__primary-button"]',
+	`[data-test-selector="chat-private-callout-queue__callout-container"]`,
+	`[data-a-target="chat-private-callout__primary-button"]`,
 ].join(", ");
+/* eslint-enable quotes */
 const NATIVE_SHARE_RESUB_TRAY_SELECTOR = ".chat-input-tray__open";
 
 interface NativeTVerinoTrayState {
@@ -156,6 +162,15 @@ const EMPTY_NATIVE_TVERINO_TRAY_STATE: NativeTVerinoTrayState = {
 	allowEmpty: false,
 	disableChat: false,
 };
+
+function isBridgeableNativeTrayType(trayType: string, sendHandlerType: string): boolean {
+	return (
+		sendHandlerType === "share-resub" ||
+		sendHandlerType === "community-points-spend" ||
+		trayType === "share-resub" ||
+		trayType === "custom-reward"
+	);
+}
 
 let observedChatRoomRoot: HTMLElement | null = null;
 let observedMessageViewport: HTMLElement | null = null;
@@ -233,7 +248,8 @@ const lineLimit = useConfig("chat.line_limit", 150);
 const ignoreClearChat = useConfig<boolean>("chat.ignore_clear_chat");
 
 function syncTimestampVisibility(): void {
-	properties.showTimestamps = properties.nativeShowTimestamps || (tverinoEnabled.value && showTVerinoTimestamps.value);
+	properties.showTimestamps =
+		properties.nativeShowTimestamps || (tverinoEnabled.value && showTVerinoTimestamps.value);
 }
 
 // Defines the current channel for hooking
@@ -363,19 +379,16 @@ function getNativeAutocompleteInstance(
 	return null;
 }
 
-function readNativeTVerinoTrayState(
-	chatInputRoot: HTMLElement | null = observedChatInputRoot,
-): NativeTVerinoTrayState {
+function readNativeTVerinoTrayState(chatInputRoot: HTMLElement | null = observedChatInputRoot): NativeTVerinoTrayState {
 	const autocompleteInstance = getNativeAutocompleteInstance(chatInputRoot);
 	const tray = autocompleteInstance?.component.props?.tray as
 		| Twitch.ChatTray<keyof Twitch.ChatTray.Type, keyof Twitch.ChatTray.SendMessageHandler.Type>
 		| null
 		| undefined;
 	const trayType = typeof tray?.type === "string" ? tray.type : "";
-	const sendHandlerType =
-		typeof tray?.sendMessageHandler?.type === "string" ? tray.sendMessageHandler.type : "";
+	const sendHandlerType = typeof tray?.sendMessageHandler?.type === "string" ? tray.sendMessageHandler.type : "";
 
-	if (sendHandlerType !== "share-resub" && trayType !== "share-resub") {
+	if (!isBridgeableNativeTrayType(trayType, sendHandlerType)) {
 		return { ...EMPTY_NATIVE_TVERINO_TRAY_STATE };
 	}
 
@@ -386,8 +399,11 @@ function readNativeTVerinoTrayState(
 		sendButtonLabel:
 			typeof tray?.sendButtonOverride === "string" && tray.sendButtonOverride.trim()
 				? tray.sendButtonOverride.trim()
-				: "Share",
-		allowEmpty: true,
+				: trayType === "custom-reward" || sendHandlerType === "community-points-spend"
+				  ? "Redeem"
+				  : "Share",
+		allowEmpty:
+			sendHandlerType === "share-resub" || (!tray?.disableChat && !String(tray?.placeholder ?? "").trim()),
 		disableChat: !!tray?.disableChat,
 	};
 }
@@ -407,7 +423,7 @@ function canBridgeNativeTrayFlow(chatInputRoot: HTMLElement | null = observedCha
 	return !!autocompleteInstance && !!sendButton;
 }
 
-// Keep 7TVerino active unless the native share-resub tray cannot be bridged cleanly.
+// Keep 7TVerino active unless the native tray cannot be bridged cleanly.
 function shouldUseNativeInputFlow(chatInputRoot: HTMLElement | null): boolean {
 	if (!(chatInputRoot instanceof HTMLElement)) return false;
 
@@ -512,7 +528,8 @@ function collectPrivateCalloutNodes(chatInputRoot: HTMLElement | null): HTMLElem
 
 	const nodes = new Set<HTMLElement>();
 	for (const candidate of Array.from(chatInputRoot.querySelectorAll<HTMLElement>(NATIVE_PRIVATE_CALLOUT_SELECTOR))) {
-		if (candidate.closest('[aria-hidden="true"]')) continue;
+		/* eslint-disable-next-line quotes */
+		if (candidate.closest(`[aria-hidden="true"]`)) continue;
 
 		let current: HTMLElement | null = candidate;
 		while (current?.parentElement && current.parentElement !== chatInputRoot) {
@@ -534,7 +551,8 @@ function collectNativeShareResubTrayNodes(chatInputRoot: HTMLElement | null): HT
 
 	const nodes = new Set<HTMLElement>();
 	for (const candidate of Array.from(chatInputRoot.querySelectorAll<HTMLElement>(NATIVE_SHARE_RESUB_TRAY_SELECTOR))) {
-		if (candidate.closest('[aria-hidden="true"]')) continue;
+		/* eslint-disable-next-line quotes */
+		if (candidate.closest(`[aria-hidden="true"]`)) continue;
 		candidate.classList.add("seventv-relocated-native-input-tray");
 		nodes.add(candidate);
 	}
@@ -548,8 +566,7 @@ function syncAlertDock(chatRoomRoot: HTMLElement | null, messageViewport: HTMLEl
 		return;
 	}
 
-	const isNativeTargetActive =
-		tverinoActiveTarget.value.kind === "native" && tverinoActiveTarget.value.id === ctx.id;
+	const isNativeTargetActive = tverinoActiveTarget.value.kind === "native" && tverinoActiveTarget.value.id === ctx.id;
 
 	observedChatRoomRoot = chatRoomRoot;
 	observedMessageViewport = messageViewport;
@@ -573,9 +590,7 @@ function syncAlertDock(chatRoomRoot: HTMLElement | null, messageViewport: HTMLEl
 	);
 	const preferInputRoot = inputLaneAlertNodes.length > 0 || hasRelocatedInputLaneNodes;
 	syncAlertHostPlacement(
-		preferInputRoot
-			? (observedChatInputRoot?.parentElement as HTMLElement | null)
-			: messageViewport.parentElement,
+		preferInputRoot ? (observedChatInputRoot?.parentElement as HTMLElement | null) : messageViewport.parentElement,
 		preferInputRoot ? inputHostEl : messageViewport,
 		preferInputRoot,
 	);
@@ -843,14 +858,37 @@ function emitLocalSystemMessage(text: string): void {
 	messages.add(message, true);
 }
 
+function withChannelSpecificCosmetics(
+	targetChannel: Pick<CurrentChannel, "id" | "username" | "displayName">,
+	onReady: () => unknown,
+): unknown {
+	if (!shouldEnsureChannelCosmetics(targetChannel.id)) {
+		return onReady();
+	}
+
+	return ensureChannelCosmeticsApplied(targetChannel)
+		.then((result) => {
+			if (!result.ok && result.error) {
+				emitLocalSystemMessage(`7TV cosmetics sync failed: ${result.error}`);
+			}
+
+			return onReady();
+		})
+		.catch((error) => {
+			emitLocalSystemMessage(
+				`7TV cosmetics sync failed: ${
+					error instanceof Error ? error.message : "Unable to apply 7TV cosmetics."
+				}`,
+			);
+			return onReady();
+		});
+}
+
 function createNativeTVerinoNonce(): string {
 	return `native:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function sendNativeTVerinoMessage(
-	message: string,
-	reply?: NonNullable<Twitch.DisplayableMessage["reply"]>,
-): boolean {
+function sendNativeTVerinoMessage(message: string, reply?: NonNullable<Twitch.DisplayableMessage["reply"]>): boolean {
 	const trayState = readNativeTVerinoTrayState(observedChatInputRoot);
 	if (reply?.parentMsgId) {
 		const transportStatus = getStatus();
@@ -865,7 +903,7 @@ function sendNativeTVerinoMessage(
 
 	const chatProps = controller.value?.component?.props as
 		| {
-				chatConnectionAPI?: { sendMessage?: Function };
+				chatConnectionAPI?: { sendMessage?: (...args: unknown[]) => unknown };
 				onSendMessage?: (value: string, reply?: NonNullable<Twitch.DisplayableMessage["reply"]>) => unknown;
 		  }
 		| undefined;
@@ -882,8 +920,9 @@ function sendNativeTVerinoMessage(
 			}
 
 			const nativeAutocomplete = getNativeAutocompleteInstance(observedChatInputRoot);
-			const nativeSendButton =
-				observedChatInputRoot?.querySelector<HTMLButtonElement>("button[data-a-target='chat-send-button']");
+			const nativeSendButton = observedChatInputRoot?.querySelector<HTMLButtonElement>(
+				"button[data-a-target='chat-send-button']",
+			);
 			if (nativeAutocomplete && nativeSendButton) {
 				nativeAutocomplete.component.setValue(message);
 				nativeSendButton.click();
@@ -1091,33 +1130,51 @@ definePropertyHook(controller.value.component, "props", {
 					activeTarget.id !== ctx.id &&
 					nextMessage
 				) {
-					const nonce = `tverino:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-					const pending = createTVerinoLocalMessage(activeTarget, nextMessage, nonce);
-					const activeTargetCtx = resolveTVerinoRemoteContext(activeTarget.id);
-					if (activeTargetCtx) {
-						activeTargetCtx.setCurrentChannel({
+					return withChannelSpecificCosmetics(
+						{
 							id: activeTarget.id,
 							username: activeTarget.login,
 							displayName: activeTarget.displayName,
-							active: true,
-						});
-					}
-					const activeTargetEmotes = activeTargetCtx ? useChatEmotes(activeTargetCtx) : null;
-					if (pending) {
-						emitTVerinoLocalMessage(activeTarget.id, pending);
-					}
+						},
+						() => {
+							const nonce = `tverino:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+							const pending = createTVerinoLocalMessage(activeTarget, nextMessage, nonce);
+							const activeTargetCtx = resolveTVerinoRemoteContext(activeTarget.id);
+							if (activeTargetCtx) {
+								activeTargetCtx.setCurrentChannel({
+									id: activeTarget.id,
+									username: activeTarget.login,
+									displayName: activeTarget.displayName,
+									active: true,
+								});
+							}
+							const activeTargetEmotes = activeTargetCtx ? useChatEmotes(activeTargetCtx) : null;
+							if (pending) {
+								emitTVerinoLocalMessage(activeTarget.id, pending);
+							}
 
-					recentSentEmotes.recordMessage(activeTarget.id, nextMessage, activeTargetEmotes?.active ?? {}, {
-						username: activeTarget.login,
-						displayName: activeTarget.displayName,
-					});
-					sendTVerinoChatMessage(activeTarget.id, activeTarget.login, nextMessage, nonce);
-					return Promise.resolve(undefined);
+							recentSentEmotes.recordMessage(
+								activeTarget.id,
+								nextMessage,
+								activeTargetEmotes?.active ?? {},
+								{
+									username: activeTarget.login,
+									displayName: activeTarget.displayName,
+								},
+							);
+							sendTVerinoChatMessage(activeTarget.id, activeTarget.login, nextMessage, nonce);
+							return Promise.resolve(undefined);
+						},
+					);
 				}
 
-				recentSentEmotes.recordMessage(ctx.id, args[0], emotes.active, {
-					username: ctx.username,
-					displayName: ctx.displayName,
+				return withChannelSpecificCosmetics(ctx.base, () => {
+					recentSentEmotes.recordMessage(ctx.id, args[0], emotes.active, {
+						username: ctx.username,
+						displayName: ctx.displayName,
+					});
+
+					return old?.apply(this, args);
 				});
 			}
 

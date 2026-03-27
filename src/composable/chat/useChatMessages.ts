@@ -139,7 +139,9 @@ export function useChatMessages(ctx: ChannelContext) {
 		if (!userMessages) return;
 
 		delete userMessages[message.id];
-		if (Object.keys(userMessages).length > 0) return;
+		for (const _messageID in userMessages) {
+			return;
+		}
 
 		delete data.displayedByUser[message.author.username];
 		delete data.chattersByUsername[message.author.username];

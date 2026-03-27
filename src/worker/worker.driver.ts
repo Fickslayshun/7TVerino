@@ -2,11 +2,11 @@ import type { TypedEventListenerOrEventListenerObject } from "@/common/EventTarg
 import { Logger, log } from "@/common/Logger";
 import { getRandomInt } from "@/common/Rand";
 import { Dexie7, db } from "@/db/idb";
-import type { TypedWorkerMessage } from ".";
+import { TVerinoChatTransport } from "./tverino.transport";
 import { EventAPI } from "./worker.events";
 import { WorkerHttp } from "./worker.http";
 import { WorkerPort } from "./worker.port";
-import { TVerinoChatTransport } from "./tverino.transport";
+import type { TypedWorkerMessage } from ".";
 
 export class WorkerDriver extends EventTarget {
 	http: WorkerHttp;
@@ -93,7 +93,6 @@ export class WorkerDriver extends EventTarget {
 					},
 					getRandomInt(2500, 15000),
 				);
-
 			}
 		};
 
@@ -149,7 +148,7 @@ type WorkerTypedEvent<EVN extends WorkerEventName> = {
 	idb_ready: void;
 	join_channel: CurrentChannel;
 	part_channel: CurrentChannel;
-	set_channel_presence: CurrentChannel;
+	set_channel_presence: TypedWorkerMessage<"CHANNEL_ACTIVE_CHATTER">;
 	channel_data_fetched: CurrentChannel;
 	identity_updated: TwitchIdentity | YouTubeIdentity;
 	user_updated: SevenTV.User;

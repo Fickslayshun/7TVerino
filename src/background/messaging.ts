@@ -1,3 +1,8 @@
+import {
+	type TwitchRewardRedemptionResponse,
+	extractTwitchRewardRedemptionError,
+	isTwitchRewardRedemptionAccepted,
+} from "@/common/TwitchRewardRedemption";
 import { downloadSettingsBackupBlob } from "@/common/settingsBackup";
 
 // Handle messaging from downstream
@@ -143,22 +148,10 @@ interface TwitchRedeemCustomRewardRequest {
 	cost: number;
 	title: string;
 	prompt?: string | null;
+	textInput?: string | null;
 	clientID: string;
 	token: string;
 	transactionID?: string;
-}
-
-interface TwitchPersistedMutationResponse {
-	data?: {
-		redeemCommunityPointsCustomReward?: {
-			redemption?: {
-				id?: string;
-			} | null;
-		} | null;
-	};
-	errors?: {
-		message?: string;
-	}[];
 }
 
 interface TwitchBadgeSelectionRequest {
@@ -204,6 +197,7 @@ async function redeemTwitchCustomReward(input: TwitchRedeemCustomRewardRequest):
 					cost: input.cost,
 					prompt: input.prompt ?? null,
 					rewardID: input.rewardID,
+					textInput: input.textInput ?? null,
 					title: input.title,
 					transactionID: input.transactionID ?? createHexToken(16),
 				},
@@ -221,11 +215,11 @@ async function redeemTwitchCustomReward(input: TwitchRedeemCustomRewardRequest):
 	if (input.token?.trim()) {
 		try {
 			const bearerPayload = await postTwitchRewardRedemptionRequest(body, input.clientID, input.token, false);
-			if (bearerPayload[0]?.data?.redeemCommunityPointsCustomReward?.redemption?.id) {
+			if (isTwitchRewardRedemptionAccepted(bearerPayload)) {
 				return;
 			}
 
-			const bearerMessage = extractTwitchGraphQLError(bearerPayload);
+			const bearerMessage = extractTwitchRewardRedemptionError(bearerPayload);
 			if (bearerMessage) {
 				throw new Error(bearerMessage);
 			}
@@ -240,11 +234,11 @@ async function redeemTwitchCustomReward(input: TwitchRedeemCustomRewardRequest):
 			throw error;
 		},
 	);
-	if (cookiePayload[0]?.data?.redeemCommunityPointsCustomReward?.redemption?.id) {
+	if (isTwitchRewardRedemptionAccepted(cookiePayload)) {
 		return;
 	}
 
-	const cookieMessage = extractTwitchGraphQLError(cookiePayload);
+	const cookieMessage = extractTwitchRewardRedemptionError(cookiePayload);
 	if (cookieMessage) {
 		throw new Error(cookieMessage);
 	}
@@ -319,7 +313,7 @@ async function postTwitchRewardRedemptionRequest(
 	clientID: string,
 	token?: string,
 	includeCredentials = false,
-): Promise<TwitchPersistedMutationResponse[]> {
+): Promise<TwitchRewardRedemptionResponse[]> {
 	const headers = {
 		"Client-Id": clientID.trim(),
 		"Content-Type": "application/json",
@@ -340,7 +334,7 @@ async function postTwitchRewardRedemptionRequest(
 		throw new Error(`Reward redemption failed: ${response.status}`);
 	}
 
-	return (await response.json()) as TwitchPersistedMutationResponse[];
+	return (await response.json()) as TwitchRewardRedemptionResponse[];
 }
 
 async function postTwitchBadgeSelectionRequest(
@@ -370,14 +364,6 @@ async function postTwitchBadgeSelectionRequest(
 	}
 
 	return (await response.json()) as TwitchBadgeSelectionResponse;
-}
-
-function extractTwitchGraphQLError(payload: TwitchPersistedMutationResponse[]): string {
-	return payload
-		.flatMap((result) => result.errors ?? [])
-		.map((error) => error.message || "Unknown Twitch error")
-		.filter(Boolean)
-		.join("; ");
 }
 
 function extractTwitchBadgeSelectionError(payload: TwitchBadgeSelectionResponse): string {

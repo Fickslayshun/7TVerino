@@ -23,10 +23,7 @@
 							@click="onRecentClick($event, entry.emote)"
 						>
 							<Emote :emote="entry.emote" :show-tooltip="false" :scale="0.74" />
-							<span
-								v-if="entry.count !== null"
-								class="seventv-tverino-recents-count-pill most-used"
-							>
+							<span v-if="entry.count !== null" class="seventv-tverino-recents-count-pill most-used">
 								{{ formatUsageCount(entry.count) }}
 							</span>
 						</button>
@@ -84,6 +81,32 @@
 					type="button"
 					aria-label="Cancel reply"
 					@click="closeNativeReplyTray"
+				>
+					&times;
+				</button>
+			</div>
+
+			<div v-if="pendingRewardRedemption" class="seventv-tverino-reply-tray seventv-tverino-reward-tray">
+				<div class="seventv-tverino-reply-tray-copy">
+					<span class="seventv-tverino-reply-tray-title">
+						Redeeming {{ pendingRewardRedemption.title }}
+					</span>
+					<span class="seventv-tverino-reply-tray-body">
+						{{ pendingRewardPrompt }}
+					</span>
+					<span
+						v-if="channelPointsNotice"
+						class="seventv-tverino-reply-tray-notice"
+						:class="{ error: channelPointsNoticeIsError }"
+					>
+						{{ channelPointsNotice }}
+					</span>
+				</div>
+				<button
+					class="seventv-tverino-reply-tray-close"
+					type="button"
+					aria-label="Cancel reward redemption"
+					@click="cancelPendingRewardRedemption"
 				>
 					&times;
 				</button>
@@ -185,7 +208,6 @@
 			:notice-is-error="channelPointsNoticeIsError"
 			:rewards="channelPointsRewards"
 			:redeemable-reward-ids="redeemableRewardIDs"
-			:redeemed-reward-id="redeemedRewardID"
 			:redeeming-reward-id="redeemingRewardID"
 			:icon-image="channelPointsIcon?.image2x || channelPointsIcon?.image1x || ''"
 			:icon-background-color="channelPointsIcon?.backgroundColor || ''"
@@ -355,12 +377,12 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useStore } from "@/store/main";
 import { TabToken, getSearchRange } from "@/common/Input";
+import { type HookedInstance, useComponentHook } from "@/common/ReactHooks";
 import { ChatAutocompleteIndex } from "@/common/chat/AutocompleteIndex";
 import { ChatMessage } from "@/common/chat/ChatMessage";
-import { type HookedInstance, useComponentHook } from "@/common/ReactHooks";
 import { type ChannelContext } from "@/composable/channel/useChannelContext";
-import { useChatEmotes } from "@/composable/chat/useChatEmotes";
 import { useAuthorEmoteSetRequests } from "@/composable/chat/useAuthorEmoteSetRequests";
+import { useChatEmotes } from "@/composable/chat/useChatEmotes";
 import { useChatMessageProcessor } from "@/composable/chat/useChatMessageProcessor";
 import { useChatMessages } from "@/composable/chat/useChatMessages";
 import {
@@ -376,27 +398,33 @@ import { MessagePartType, MessageType } from "@/site/twitch.tv";
 import TwitchChannelPointsIcon from "@/assets/svg/icons/TwitchChannelPointsIcon.vue";
 import TwitchChatSettingsIcon from "@/assets/svg/icons/TwitchChatSettingsIcon.vue";
 import Logo7TV from "@/assets/svg/logos/Logo7TV.vue";
-import ChatInputCarousel from "../chat-input/ChatInputCarousel.vue";
 import TVerinoChannelPointsPanel from "./TVerinoChannelPointsPanel.vue";
 import TVerinoChatSettingsPanel from "./TVerinoChatSettingsPanel.vue";
 import TVerinoGlobalBadgePanel from "./TVerinoGlobalBadgePanel.vue";
 import { activeReplyTray } from "./components/tray/ChatTray";
-import BasicSystemMessage from "@/app/chat/msg/BasicSystemMessage.vue";
 import {
 	applyTVerinoSendResultToMessage,
 	getTVerinoSelfMessageState,
+	rememberPendingTVerinoTypedRewardRedemption,
 	rememberTVerinoSelfMessageState,
 	storePendingTVerinoSendResult,
 	toTVerinoBadgeMap,
 } from "./tverinoPendingMessage";
-import { useTVerinoChannelPoints } from "./useTVerinoChannelPoints";
+import {
+	ensureChannelCosmeticsApplied,
+	primeChannelCosmetics,
+	shouldEnsureChannelCosmetics,
+} from "./useTVerinoChannelCosmetics";
+import { type TVerinoChannelPointsReward, useTVerinoChannelPoints } from "./useTVerinoChannelPoints";
 import { useTVerinoChatTransport } from "./useTVerinoChatTransport";
 import { type TVerinoGlobalBadgeOption, useTVerinoGlobalBadges } from "./useTVerinoGlobalBadges";
 import Emote from "@/app/chat/Emote.vue";
+import BasicSystemMessage from "@/app/chat/msg/BasicSystemMessage.vue";
 import EmoteMenu from "@/app/emote-menu/EmoteMenu.vue";
 import { useEmoteMenuContext } from "@/app/emote-menu/EmoteMenuContext";
 import { useSettingsMenu } from "@/app/settings/Settings";
 import type { TypedWorkerMessage } from "@/worker";
+import ChatInputCarousel from "../chat-input/ChatInputCarousel.vue";
 
 interface SuggestionItem {
 	token: string;
@@ -496,6 +524,7 @@ const badgeTriggerIndex = ref(0);
 const channelPointsPanelOpen = ref(false);
 const badgePanelOpen = ref(false);
 const settingsPanelOpen = ref(false);
+const pendingRewardRedemption = ref<TVerinoChannelPointsReward | null>(null);
 const channelPointsNativeMenuAvailable = ref(false);
 const channelPointsReviewRequestsCount = ref<number | null>(null);
 const nativeClaimVisible = ref(false);
@@ -537,10 +566,8 @@ const {
 	channelPointsNotice,
 	channelPointsNoticeIsError,
 	channelPointsRewards,
-	clearRedeemedReward,
 	redeemReward,
 	redeemableRewardIDs,
-	redeemedRewardID,
 	redeemingRewardID,
 	channelPointsVisible,
 	refreshChannelPointsState,
@@ -600,8 +627,16 @@ const hasActiveNativeTray = computed(() => !!props.nativeTrayState?.active);
 const shouldRouteThroughNativeInput = computed(
 	() => props.mode === "native" || (hasActiveNativeTray.value && typeof props.nativeSendMessage === "function"),
 );
+const pendingRewardPrompt = computed(() => {
+	const reward = pendingRewardRedemption.value;
+	if (!reward) return "";
+	return reward.prompt || `Type your response for ${reward.title}`;
+});
 const placeholder = computed(() => {
 	if (props.inputStatus.state !== "connected") return "Chat unavailable";
+	if (pendingRewardRedemption.value) {
+		return pendingRewardPrompt.value;
+	}
 	if (hasActiveNativeTray.value && props.nativeTrayState?.placeholder) {
 		return props.nativeTrayState.placeholder;
 	}
@@ -611,17 +646,21 @@ const placeholder = computed(() => {
 });
 
 const submitLabel = computed(() => {
+	if (pendingRewardRedemption.value) {
+		return "Redeem";
+	}
 	if (hasActiveNativeTray.value && props.nativeTrayState?.sendButtonLabel) {
 		return props.nativeTrayState.sendButtonLabel;
 	}
 
 	return "Chat";
 });
-const canSubmitEmptyNativeTray = computed(
-	() => hasActiveNativeTray.value && !!props.nativeTrayState?.allowEmpty,
-);
+const canSubmitEmptyNativeTray = computed(() => hasActiveNativeTray.value && !!props.nativeTrayState?.allowEmpty);
 const canSend = computed(() => {
 	if (props.inputStatus.state !== "connected") return false;
+	if (pendingRewardRedemption.value) {
+		return value.value.trim().length > 0;
+	}
 	if (hasActiveNativeTray.value && props.nativeTrayState) {
 		if (props.nativeTrayState.disableChat) return false;
 		if (canSubmitEmptyNativeTray.value) return true;
@@ -649,7 +688,6 @@ const nativeClaimPointsGainLabel = computed(() =>
 		? pointsDeltaFormatter.format(nativeClaimPointsGain.value)
 		: "",
 );
-
 useComponentHook<Twitch.ChatChannelPointsClaimComponent>(
 	{
 		parentSelector: ".community-points-summary",
@@ -673,7 +711,10 @@ useComponentHook<Twitch.ChatChannelPointsClaimComponent>(
 	},
 );
 
-function syncNativeClaimState(inst: HookedInstance<Twitch.ChatChannelPointsClaimComponent>, cur: React.ReactNode): void {
+function syncNativeClaimState(
+	inst: HookedInstance<Twitch.ChatChannelPointsClaimComponent>,
+	cur: React.ReactNode,
+): void {
 	if (props.mode !== "native") {
 		resetNativeClaimState();
 		return;
@@ -681,7 +722,8 @@ function syncNativeClaimState(inst: HookedInstance<Twitch.ChatChannelPointsClaim
 
 	const visible = !inst.component.props.hidden && reactNodeContainsVisibleClaim(cur);
 	nativeClaimVisible.value = visible;
-	nativeClaimAction.value = visible && typeof inst.component.onClick === "function" ? () => inst.component.onClick() : null;
+	nativeClaimAction.value =
+		visible && typeof inst.component.onClick === "function" ? () => inst.component.onClick() : null;
 
 	if (!visible && !nativeClaimPending.value && !nativeClaimClaimed.value) {
 		clearNativeClaimResetTimeout();
@@ -758,8 +800,11 @@ function findNativeChannelPointsMoreOptionsButtons(): HTMLButtonElement[] {
 	const seen = new Set<HTMLButtonElement>();
 	const buttons: HTMLButtonElement[] = [];
 
+	/* eslint-disable quotes */
 	for (const scope of scopes) {
-		for (const button of Array.from(scope.querySelectorAll<HTMLButtonElement>('button[aria-label="More options"]'))) {
+		for (const button of Array.from(
+			scope.querySelectorAll<HTMLButtonElement>(`button[aria-label="More options"]`),
+		)) {
 			if (seen.has(button)) continue;
 			seen.add(button);
 			if (button.closest(".seventv-tverino-points-panel")) continue;
@@ -767,18 +812,20 @@ function findNativeChannelPointsMoreOptionsButtons(): HTMLButtonElement[] {
 			buttons.push(button);
 		}
 	}
+	/* eslint-enable quotes */
 
 	return buttons;
 }
 
 function findNativeChannelPointsPopupRoot(): HTMLElement | null {
-	const poppers = Array.from(document.querySelectorAll<HTMLElement>('[data-popper-placement="bottom-end"]'));
+	/* eslint-disable quotes */
+	const poppers = Array.from(document.querySelectorAll<HTMLElement>(`[data-popper-placement="bottom-end"]`));
 	for (const popper of poppers) {
 		if (popper.closest(".seventv-tverino-points-panel")) continue;
 		if (!isVisibleElement(popper)) continue;
 		if (
-			popper.querySelector('[data-test-selector="requests-count"]') ||
-			popper.querySelector('[data-a-target="report-button-report-button"]')
+			popper.querySelector(`[data-test-selector="requests-count"]`) ||
+			popper.querySelector(`[data-a-target="report-button-report-button"]`)
 		) {
 			return popper;
 		}
@@ -788,12 +835,13 @@ function findNativeChannelPointsPopupRoot(): HTMLElement | null {
 		if (balloon.closest(".seventv-tverino-points-panel")) continue;
 		if (!isVisibleElement(balloon)) continue;
 		if (
-			balloon.querySelector('[data-test-selector="requests-count"]') ||
-			balloon.querySelector('[data-a-target="report-button-report-button"]')
+			balloon.querySelector(`[data-test-selector="requests-count"]`) ||
+			balloon.querySelector(`[data-a-target="report-button-report-button"]`)
 		) {
 			return balloon;
 		}
 	}
+	/* eslint-enable quotes */
 
 	return null;
 }
@@ -802,7 +850,9 @@ function findNativeChannelPointsReviewRequestsButton(): HTMLButtonElement | null
 	const popupRoot = findNativeChannelPointsPopupRoot();
 	if (!popupRoot) return null;
 
-	const countNode = popupRoot.querySelector<HTMLElement>('[data-test-selector="requests-count"]');
+	/* eslint-disable quotes */
+	const countNode = popupRoot.querySelector<HTMLElement>(`[data-test-selector="requests-count"]`);
+	/* eslint-enable quotes */
 	const countButton = countNode?.closest("button");
 	if (countButton instanceof HTMLButtonElement) return countButton;
 
@@ -817,7 +867,9 @@ function findNativeChannelPointsReportRewardsButton(): HTMLButtonElement | null 
 	const popupRoot = findNativeChannelPointsPopupRoot();
 	if (!popupRoot) return null;
 
-	const reportButton = popupRoot.querySelector<HTMLButtonElement>('[data-a-target="report-button-report-button"]');
+	/* eslint-disable quotes */
+	const reportButton = popupRoot.querySelector<HTMLButtonElement>(`[data-a-target="report-button-report-button"]`);
+	/* eslint-enable quotes */
 	if (reportButton) return reportButton;
 
 	for (const button of Array.from(popupRoot.querySelectorAll<HTMLButtonElement>("button"))) {
@@ -831,7 +883,9 @@ function findNativeChannelPointsRequestCount(): number | null {
 	const popupRoot = findNativeChannelPointsPopupRoot();
 	if (!popupRoot) return null;
 
-	const countNode = popupRoot.querySelector<HTMLElement>('[data-test-selector="requests-count"]');
+	/* eslint-disable quotes */
+	const countNode = popupRoot.querySelector<HTMLElement>(`[data-test-selector="requests-count"]`);
+	/* eslint-enable quotes */
 	if (!countNode) return null;
 
 	const match = countNode.textContent?.match(/\d[\d,]*/);
@@ -956,29 +1010,32 @@ function triggerNativeClaimSuccess(pointsGain: number | null): void {
 
 function scheduleNativeClaimRefresh(token: number, attempt = 0): void {
 	clearNativeClaimPollTimeout();
-	nativeClaimPollTimeout = window.setTimeout(async () => {
-		if (token !== nativeClaimRequestToken || !nativeClaimPending.value) return;
+	nativeClaimPollTimeout = window.setTimeout(
+		async () => {
+			if (token !== nativeClaimRequestToken || !nativeClaimPending.value) return;
 
-		try {
-			await refreshChannelPointsState({ background: true });
-		} catch {
-			// Ignore refresh errors during the native claim handoff.
-		}
+			try {
+				await refreshChannelPointsState({ background: true });
+			} catch {
+				// Ignore refresh errors during the native claim handoff.
+			}
 
-		if (token !== nativeClaimRequestToken || !nativeClaimPending.value) return;
+			if (token !== nativeClaimRequestToken || !nativeClaimPending.value) return;
 
-		if (!nativeClaimVisible.value && attempt >= 2) {
-			triggerNativeClaimSuccess(null);
-			return;
-		}
+			if (!nativeClaimVisible.value && attempt >= 2) {
+				triggerNativeClaimSuccess(null);
+				return;
+			}
 
-		if (attempt >= 5) {
-			nativeClaimPending.value = false;
-			return;
-		}
+			if (attempt >= 5) {
+				nativeClaimPending.value = false;
+				return;
+			}
 
-		scheduleNativeClaimRefresh(token, attempt + 1);
-	}, attempt === 0 ? 420 : 700);
+			scheduleNativeClaimRefresh(token, attempt + 1);
+		},
+		attempt === 0 ? 420 : 700,
+	);
 }
 
 function claimNativeChannelPoints(): void {
@@ -1030,7 +1087,9 @@ function resolveRecentEntry(entry: RecentSentEmoteEntry | RecentSentEmoteUsageEn
 		title:
 			count === null
 				? `${entry.name} - Click to send. Ctrl+Click or Alt+Click to insert.`
-				: `${entry.name} - Sent ${count} ${count === 1 ? "time" : "times"} in this channel. Click to send. Ctrl+Click or Alt+Click to insert.`,
+				: `${entry.name} - Sent ${count} ${
+						count === 1 ? "time" : "times"
+				  } in this channel. Click to send. Ctrl+Click or Alt+Click to insert.`,
 	};
 }
 
@@ -1087,9 +1146,9 @@ function getNativeAutocompleteInstance(): HookedInstance<Twitch.ChatAutocomplete
 function getNativeCommandProvider(): NativeCommandProvider | null {
 	const instance = getNativeAutocompleteInstance();
 	return (
-		(instance?.component.providers.find(
-			(entry) => entry.autocompleteType === "command",
-		) as NativeCommandProvider | undefined) ?? null
+		(instance?.component.providers.find((entry) => entry.autocompleteType === "command") as
+			| NativeCommandProvider
+			| undefined) ?? null
 	);
 }
 
@@ -1114,7 +1173,10 @@ function findNativeAutocompleteProp(node: unknown, key: string): string {
 function flattenNativeAutocompleteText(node: unknown): string {
 	if (typeof node === "string" || typeof node === "number") return String(node);
 	if (Array.isArray(node)) {
-		return node.map((entry) => flattenNativeAutocompleteText(entry)).filter(Boolean).join(" ");
+		return node
+			.map((entry) => flattenNativeAutocompleteText(entry))
+			.filter(Boolean)
+			.join(" ");
 	}
 	if (!node || typeof node !== "object") return "";
 
@@ -1168,7 +1230,9 @@ function getNativeAutocompleteTrayRoot(): HTMLElement | null {
 		return nativeRoot.querySelector<HTMLElement>(".chat-input-tray__open");
 	}
 
-	return document.querySelector<HTMLElement>(".chat-input.seventv-tverino-native-input-hidden .chat-input-tray__open");
+	return document.querySelector<HTMLElement>(
+		".chat-input.seventv-tverino-native-input-hidden .chat-input-tray__open",
+	);
 }
 
 function getCommandSuggestionReplacement(tokenLabel: string): string {
@@ -1200,8 +1264,8 @@ function getNativeTraySuggestionItems(token: string): SuggestionItem[] {
 			kind === "command"
 				? getCommandSuggestionReplacement(tokenLabel)
 				: kind === "emote"
-					? resolveSuggestionEmote(tokenLabel, tokenLabel)?.unicode || tokenLabel
-					: tokenLabel;
+				  ? resolveSuggestionEmote(tokenLabel, tokenLabel)?.unicode || tokenLabel
+				  : tokenLabel;
 		const emote = kind === "emote" ? resolveSuggestionEmote(tokenLabel, replacement) : undefined;
 
 		items.push({
@@ -1267,12 +1331,11 @@ function getCommandSuggestionItems(token: string): SuggestionItem[] {
 	const commands = provider.props?.getCommands?.();
 	if (!Array.isArray(commands)) return [];
 
-	const test =
-		!commandSearch
-			? (_value: string) => true
-			: autocompleteMatchMode.value === 0
-			? (value: string) => value.startsWith(commandSearch)
-			: (value: string) => value.includes(commandSearch);
+	const test = !commandSearch
+		? () => true
+		: autocompleteMatchMode.value === 0
+		  ? (value: string) => value.startsWith(commandSearch)
+		  : (value: string) => value.includes(commandSearch);
 
 	const items = [] as SuggestionItem[];
 	const seen = new Set<string>();
@@ -1368,7 +1431,7 @@ const suggestionItems = computed<SuggestionItem[]>(() => {
 
 		items.push({
 			token: match.token,
-			replacement: emote.provider === "EMOJI" ? (emote.unicode || match.token) : match.token,
+			replacement: emote.provider === "EMOJI" ? emote.unicode || match.token : match.token,
 			kind: "emote",
 			emote,
 		});
@@ -1467,7 +1530,7 @@ function useMessageHistory(backwards = true): boolean {
 	const nextIndex = backwards ? messageHistoryIndex.value + 1 : messageHistoryIndex.value - 1;
 	if (nextIndex < -1 || nextIndex >= messageHistory.value.length) return false;
 
-	const nextValue = nextIndex === -1 ? (messageHistoryDraft.value ?? "") : messageHistory.value[nextIndex];
+	const nextValue = nextIndex === -1 ? messageHistoryDraft.value ?? "" : messageHistory.value[nextIndex];
 	setValueFromMessageHistory(nextValue);
 	messageHistoryIndex.value = nextIndex;
 	return true;
@@ -1651,7 +1714,9 @@ function handleTabPress(ev: KeyboardEvent, backwards = false): void {
 	) {
 		currentIndex = tabState.value.index;
 	} else {
-		currentIndex = matches.findIndex((match) => normalizeTabMatchToken(match.token) === normalizeTabMatchToken(range.token));
+		currentIndex = matches.findIndex(
+			(match) => normalizeTabMatchToken(match.token) === normalizeTabMatchToken(range.token),
+		);
 	}
 
 	if (currentIndex < 0) {
@@ -1722,6 +1787,10 @@ function closeEmoteMenuFromInput(): void {
 function onInputFocus(): void {
 	isFocused.value = true;
 	closeEmoteMenuFromInput();
+
+	if (shouldEnsureChannelCosmetics(props.ctx.id)) {
+		void primeChannelCosmetics(props.ctx);
+	}
 }
 
 function closeNativeReplyTray(): void {
@@ -1906,11 +1975,12 @@ function finalizeSubmit(keepDraft: boolean): void {
 	});
 }
 
-function submit(explicitText?: string, trigger?: Event | SubmitModifierLike): void {
+async function submit(explicitText?: string, trigger?: Event | SubmitModifierLike): Promise<void> {
 	const rawMessage = explicitText ?? value.value;
 	const message = rawMessage.trim();
-	if ((!message && !canSubmitEmptyNativeTray.value) || !identity.value) return;
+	if (!message && !canSubmitEmptyNativeTray.value) return;
 	const keepDraft = shouldKeepDraftAfterSubmit(explicitText, trigger);
+	const pendingReward = pendingRewardRedemption.value;
 	const replyMetadata = activeReply.value
 		? {
 				parentDeleted: activeReply.value.deleted,
@@ -1929,7 +1999,35 @@ function submit(explicitText?: string, trigger?: Event | SubmitModifierLike): vo
 		  }
 		: undefined;
 
+	if (pendingReward) {
+		const redeemed = await redeemReward(pendingReward, message);
+		if (!redeemed) return;
+		if (identity.value?.id) {
+			rememberPendingTVerinoTypedRewardRedemption(
+				props.ctx.id,
+				identity.value.id,
+				{
+					cost: pendingReward.cost,
+					name: pendingReward.title,
+				},
+				message,
+			);
+		}
+		if (message) {
+			pushMessageHistory(message);
+		}
+		pendingRewardRedemption.value = null;
+		finalizeSubmit(false);
+		return;
+	}
+
+	if (!identity.value) return;
+
 	if (shouldRouteThroughNativeInput.value) {
+		if (props.mode === "native" && shouldEnsureChannelCosmetics(props.ctx.id)) {
+			await syncChannelCosmeticsBeforeSend();
+		}
+
 		const didSend = props.nativeSendMessage?.(message, replyMetadata) ?? false;
 		if (!didSend) return;
 
@@ -1938,6 +2036,10 @@ function submit(explicitText?: string, trigger?: Event | SubmitModifierLike): vo
 		}
 		finalizeSubmit(keepDraft);
 		return;
+	}
+
+	if (shouldEnsureChannelCosmetics(props.ctx.id)) {
+		await syncChannelCosmeticsBeforeSend();
 	}
 
 	const nonce = createNonce();
@@ -2014,6 +2116,17 @@ function submit(explicitText?: string, trigger?: Event | SubmitModifierLike): vo
 	sendChatMessage(props.ctx.id, props.ctx.username, message, nonce, replyMetadata);
 	pushMessageHistory(message);
 	finalizeSubmit(keepDraft);
+}
+
+async function syncChannelCosmeticsBeforeSend(): Promise<void> {
+	const result = await ensureChannelCosmeticsApplied(props.ctx);
+	if (result.ok || !result.error) return;
+
+	const systemMessage = new ChatMessage().setComponent(BasicSystemMessage, {
+		text: `7TV cosmetics sync failed: ${result.error}`,
+	});
+	systemMessage.setTimestamp(Date.now());
+	messages.add(systemMessage, true);
 }
 
 function onSendResult(ev: Event): void {
@@ -2099,7 +2212,6 @@ function closeChannelPointsPanel(): void {
 	stopNativeChannelPointsMenuObserver();
 	channelPointsNativeMenuAvailable.value = false;
 	channelPointsReviewRequestsCount.value = null;
-	clearRedeemedReward();
 }
 
 function closeBadgePanel(): void {
@@ -2156,7 +2268,27 @@ function onBadgeSelect(badge: TVerinoGlobalBadgeOption): void {
 	void selectBadgeOption(badge);
 }
 
-function onChannelPointsRedeem(reward: import("./useTVerinoChannelPoints").TVerinoChannelPointsReward): void {
+function startPendingRewardRedemption(reward: TVerinoChannelPointsReward): void {
+	pendingRewardRedemption.value = reward;
+	channelPointsNotice.value = "";
+	channelPointsNoticeIsError.value = false;
+	value.value = "";
+	closeChannelPointsPanel();
+	requestAnimationFrame(() => inputRef.value?.focus());
+}
+
+function cancelPendingRewardRedemption(): void {
+	pendingRewardRedemption.value = null;
+	value.value = "";
+	requestAnimationFrame(() => inputRef.value?.focus());
+}
+
+function onChannelPointsRedeem(reward: TVerinoChannelPointsReward): void {
+	if (reward.requiresUserInput) {
+		startPendingRewardRedemption(reward);
+		return;
+	}
+
 	void redeemReward(reward);
 }
 
@@ -2186,6 +2318,11 @@ watch(activeReply, (tray) => {
 	requestAnimationFrame(() => inputRef.value?.focus());
 });
 
+watch(pendingRewardRedemption, (reward) => {
+	if (!reward) return;
+	requestAnimationFrame(() => inputRef.value?.focus());
+});
+
 watch(
 	inputRef,
 	(input, previousInput) => {
@@ -2203,10 +2340,22 @@ watch(
 	{ immediate: true },
 );
 
-watch(value, () => {
+watch(value, (nextValue, previousValue) => {
 	queueInputFieldHeightSync();
 	if (syncingMessageHistoryValue || messageHistoryIndex.value === -1) return;
 	resetMessageHistoryNavigation();
+
+	if (
+		pendingRewardRedemption.value ||
+		!nextValue.trim() ||
+		previousValue?.trim() ||
+		(hasActiveNativeTray.value && props.mode !== "native") ||
+		!shouldEnsureChannelCosmetics(props.ctx.id)
+	) {
+		return;
+	}
+
+	void primeChannelCosmetics(props.ctx);
 });
 
 watch(channelPointsBalance, (nextBalance) => {
@@ -2230,6 +2379,13 @@ watch(
 		channelPointsReviewRequestsCount.value = null;
 	},
 	{ immediate: true },
+);
+
+watch(
+	() => props.ctx.id,
+	() => {
+		pendingRewardRedemption.value = null;
+	},
 );
 
 watch(
@@ -2298,6 +2454,11 @@ onUnmounted(() => {
 	background: rgb(255 255 255 / 0.05);
 }
 
+.seventv-tverino-reward-tray {
+	border-color: rgb(145 70 255 / 0.32);
+	background: rgb(145 70 255 / 0.12);
+}
+
 .seventv-tverino-reply-tray-copy {
 	display: flex;
 	flex: 1 1 auto;
@@ -2318,6 +2479,17 @@ onUnmounted(() => {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.seventv-tverino-reply-tray-notice {
+	color: var(--seventv-text-color-secondary);
+	font-size: 1.12rem;
+	line-height: 1.35;
+	white-space: normal;
+
+	&.error {
+		color: #ff9e9e;
+	}
 }
 
 .seventv-tverino-reply-tray-close {
@@ -2346,9 +2518,7 @@ onUnmounted(() => {
 	overflow: hidden;
 	border: 1px solid rgb(255 255 255 / 0.62);
 	border-radius: 0.5rem;
-	background:
-		linear-gradient(180deg, rgb(255 255 255 / 0.028), transparent 42%),
-		rgb(24 24 27 / 0.965);
+	background: linear-gradient(180deg, rgb(255 255 255 / 0.028), transparent 42%), rgb(24 24 27 / 0.965);
 	box-shadow:
 		inset 0 1px 0 rgb(255 255 255 / 0.06),
 		0 0.7rem 1.8rem rgb(0 0 0 / 0.2);

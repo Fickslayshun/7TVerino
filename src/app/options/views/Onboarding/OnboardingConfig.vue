@@ -17,8 +17,8 @@
 				</div>
 
 				<div class="cfg__advisory-actions">
-					<UiButton 
-						class="cfg__advisory-skip" 
+					<UiButton
+						class="cfg__advisory-skip"
 						@click="skipConfigStep"
 						@mouseenter="cursorActive = true"
 						@mouseleave="cursorActive = false"
@@ -45,16 +45,16 @@
 						<h2 class="cfg__q-title">{{ currentQuestion.title }}</h2>
 
 						<div v-if="currentQuestion.kind === 'either'" class="cfg__q-options">
-							<UiButton 
-								class="cfg__q-yes" 
+							<UiButton
+								class="cfg__q-yes"
 								@click="onAnswer(currentQuestion!, true)"
 								@mouseenter="cursorActive = true"
 								@mouseleave="cursorActive = false"
 							>
 								<span v-t="'onboarding.config_answer_button_yes'" />
 							</UiButton>
-							<UiButton 
-								class="cfg__q-no" 
+							<UiButton
+								class="cfg__q-no"
 								@click="onAnswer(currentQuestion!, false)"
 								@mouseenter="cursorActive = true"
 								@mouseleave="cursorActive = false"
@@ -75,8 +75,8 @@
 								/>
 							</UiScrollable>
 
-							<UiButton 
-								class="cfg__q-confirm" 
+							<UiButton
+								class="cfg__q-confirm"
 								@click="onAnswer(currentQuestion!, true)"
 								@mouseenter="cursorActive = true"
 								@mouseleave="cursorActive = false"
@@ -98,7 +98,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const { setCompleted, setLock } = useOnboarding("config");
-const cursorActive = inject('CURSOR_ACTIVE', ref(false));
+const cursorActive = inject("CURSOR_ACTIVE", ref(false));
 
 const settings = useSettings();
 
@@ -110,10 +110,7 @@ const questions = ref<Question[]>([
 		id: "active-chatter",
 		kind: "either",
 		title: t("onboarding.config_question.chatter"),
-		immediateConfigEffect: [
-			["highlights.basic.mention_sound", true],
-			["highlights.basic.mention_title_flash", true],
-		],
+		immediateConfigEffect: [["highlights.basic.mention_title_flash", true]],
 	},
 	{
 		id: "chatter-config-autocompletion",
@@ -145,17 +142,14 @@ const questions = ref<Question[]>([
 	{
 		id: "chatter-config-ping",
 		kind: "config",
-		configEffect: ["highlights.basic.mention_title_flash", "highlights.basic.mention_sound"],
+		configEffect: ["highlights.basic.mention_title_flash"],
 		title: t("onboarding.config_question.chatter_ping"),
 		if: ["active-chatter"],
 	},
 	{
 		id: "chatter-config-spam",
 		kind: "config",
-		configEffect: [
-			"general.autoclaim.channel_points",
-			"chat_input.spam.bypass_duplicate",
-		],
+		configEffect: ["general.autoclaim.channel_points", "chat_input.spam.bypass_duplicate"],
 		title: t("onboarding.config_question.chatter_spam"),
 		if: ["active-chatter"],
 	},
@@ -180,7 +174,6 @@ const questions = ref<Question[]>([
 			["general.blur_unlisted_emotes", true],
 			["chat.message_batch_duration", 350],
 			["highlights.basic.mention_title_flash", false],
-			["highlights.basic.mention_sound", false],
 		],
 	},
 	{
@@ -193,7 +186,6 @@ const questions = ref<Question[]>([
 			"chat.message_batch_duration",
 			"chat.smooth_scroll_duration",
 			"highlights.basic.mention_title_flash",
-			"highlights.basic.mention_sound",
 		],
 	},
 ]);
@@ -288,7 +280,7 @@ interface Question {
 </script>
 
 <script lang="ts">
-import { reactive, ref, inject } from "vue";
+import { inject, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useTimeoutFn } from "@vueuse/shared";
 import { useConfig, useSettings } from "@/composable/useSettings";
@@ -353,7 +345,9 @@ export const step: OnboardingStepRoute = {
 	letter-spacing: -0.05em;
 	line-height: 1.05;
 	color: #fff;
-	text-shadow: 0 4px 16px rgba(0, 0, 0, 0.8), 0 2px 4px rgba(0, 0, 0, 0.4);
+	text-shadow:
+		0 4px 16px rgba(0, 0, 0, 0.8),
+		0 2px 4px rgba(0, 0, 0, 0.4);
 	margin: 0;
 	animation-delay: 0.2s;
 }
@@ -389,7 +383,9 @@ export const step: OnboardingStepRoute = {
 	border-radius: 1.25rem;
 	backdrop-filter: blur(20px) saturate(180%);
 	-webkit-backdrop-filter: blur(20px) saturate(180%);
-	box-shadow: 0 24px 80px -20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+	box-shadow:
+		0 24px 80px -20px rgba(0, 0, 0, 0.8),
+		inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .cfg__advisory-content {
@@ -438,8 +434,13 @@ export const step: OnboardingStepRoute = {
 	height: 3.25rem;
 	border-radius: 999px;
 	box-shadow: none !important;
-	transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease;
-	
+	transition:
+		background 0.3s ease,
+		border-color 0.3s ease,
+		color 0.3s ease,
+		box-shadow 0.3s ease,
+		transform 0.2s ease;
+
 	&:active {
 		transform: scale(0.96);
 	}
@@ -462,7 +463,12 @@ export const step: OnboardingStepRoute = {
 	font-weight: 600;
 	color: rgba(255, 255, 255, 0.72);
 	box-shadow: none !important;
-	transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease;
+	transition:
+		background 0.3s ease,
+		border-color 0.3s ease,
+		color 0.3s ease,
+		box-shadow 0.3s ease,
+		transform 0.2s ease;
 
 	&:hover {
 		border-color: rgba(255, 255, 255, 0.32);
@@ -489,7 +495,9 @@ export const step: OnboardingStepRoute = {
 	border-radius: 1.25rem;
 	backdrop-filter: blur(20px) saturate(180%);
 	-webkit-backdrop-filter: blur(20px) saturate(180%);
-	box-shadow: 0 24px 80px -20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+	box-shadow:
+		0 24px 80px -20px rgba(0, 0, 0, 0.8),
+		inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .cfg__q-title {

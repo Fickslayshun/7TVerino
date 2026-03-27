@@ -48,6 +48,8 @@ export type WorkerMessageType = keyof typeof workerMessageType;
 export type TypedWorkerMessage<T extends WorkerMessageType> = {
 	CHANNEL_ACTIVE_CHATTER: {
 		channel: CurrentChannel;
+		includeSelf?: boolean;
+		force?: boolean;
 	};
 	IDENTITY_FETCHED: {
 		user: SevenTV.User | null;
@@ -172,6 +174,7 @@ export type TypedWorkerMessage<T extends WorkerMessageType> = {
 		cost: number;
 		title: string;
 		prompt?: string | null;
+		textInput?: string | null;
 		clientID: string;
 		token: string;
 		transactionID?: string;

@@ -119,11 +119,7 @@ watch(
 	],
 	([controllerCount, listCount, roomCount, bufferCount, eventsCount]) =>
 		(isHookable.value =
-			controllerCount > 0 &&
-			listCount > 0 &&
-			roomCount > 0 &&
-			bufferCount > 0 &&
-			eventsCount > 0),
+			controllerCount > 0 && listCount > 0 && roomCount > 0 && bufferCount > 0 && eventsCount > 0),
 	{
 		immediate: true,
 	},
@@ -152,6 +148,7 @@ import type {
 	RecentSentEmoteUsageEntry,
 } from "@/composable/chat/useRecentSentEmotes";
 import { declareConfig, useConfig } from "@/composable/useSettings";
+import ChannelSpecific7TVCosmeticsSettings from "./components/ChannelSpecific7TVCosmeticsSettings.vue";
 import PersonalTimeoutManager from "./components/PersonalTimeoutManager.vue";
 import RecentEmoteBarSettings from "./components/RecentEmoteBarSettings.vue";
 import SettingsConfigHighlights from "@/app/settings/SettingsConfigHighlights.vue";
@@ -437,7 +434,7 @@ export const config = [
 		},
 	}),
 	declareConfig("chat.tverino.auto_save", "TOGGLE", {
-		path: ["7TVerino", "Chat", 6],
+		path: ["7TVerino", "Performance"],
 		label: "Auto Save Settings",
 		hint: "Refresh 7tverino_settings.json every hour while Twitch is open.",
 		defaultValue: false,
@@ -445,6 +442,40 @@ export const config = [
 			void setSettingsBackupAutosaveEnabled(Boolean(value)).catch((err) => {
 				log.error("<SettingsBackup>", "failed to sync auto-save setting", (err as Error).message);
 			});
+		},
+	}),
+	declareConfig<string>("chat.tverino.channel_cosmetics_default_paint_id", "NONE", {
+		label: "Default Channel-Specific 7TV Paint",
+		defaultValue: "",
+	}),
+	declareConfig<string>("chat.tverino.channel_cosmetics_default_badge_id", "NONE", {
+		label: "Default Channel-Specific 7TV Badge",
+		defaultValue: "",
+	}),
+	declareConfig<Map<string, SevenTV.TVerinoChannelCosmeticOverride>>(
+		"chat.tverino.channel_cosmetics_overrides",
+		"NONE",
+		{
+			label: "Channel-Specific 7TV Cosmetic Overrides",
+			defaultValue: new Map(),
+			transform: (v) =>
+				String(v) !== "[object Map]"
+					? new Map<string, SevenTV.TVerinoChannelCosmeticOverride>()
+					: (v as Map<string, SevenTV.TVerinoChannelCosmeticOverride>),
+		},
+	),
+	declareConfig("chat.tverino.channel_cosmetics_panel", "CUSTOM", {
+		path: ["7TVerino", "Chat", 7],
+		label: "Channel Specific 7TV Cosmetics",
+		hint: "Assign default 7TV cosmetics and override them per channel from your owned paints and badges.",
+		defaultValue: false,
+		persist: false,
+		serialize: false,
+		custom: {
+			component: markRaw(ChannelSpecific7TVCosmeticsSettings),
+			gridMode: "new-row",
+			collapsible: true,
+			defaultExpanded: false,
 		},
 	}),
 	declareConfig<RecentEmoteBarMode>("chat.recent_emote_bar.mode", "NONE", {
@@ -530,13 +561,6 @@ export const config = [
 		hint: "Whether or not to highlight messages that mention or reply to you in chat",
 		defaultValue: true,
 	}),
-	declareConfig<boolean>("highlights.basic.mention_sound", "TOGGLE", {
-		path: ["Highlights", "Built-In"],
-		label: "Play Sound on Mention",
-		hint: "Play a sound when you are mentioned in chat",
-		disabledIf: () => !useConfig("highlights.basic.mention").value,
-		defaultValue: false,
-	}),
 	declareConfig<boolean>("highlights.basic.mention_title_flash", "TOGGLE", {
 		path: ["Highlights", "Built-In"],
 		label: "Flash Title on Mention",
@@ -583,18 +607,6 @@ export const config = [
 		label: "Custom Highlights",
 		hint: "Create custom highlights for specific words, phrases or all messages from specific users",
 		defaultValue: new Map(),
-	}),
-	declareConfig<number>("highlights.sound_volume", "SLIDER", {
-		path: ["Highlights", "Built-In"],
-		label: "Highlight Sound Volume",
-		hint: "Control the volume at which sound plays upon being mentioned",
-		options: {
-			min: 0,
-			max: 100,
-			step: 1,
-			unit: "%",
-		},
-		defaultValue: 75,
 	}),
 	declareConfig<number>("highlights.display_style", "DROPDOWN", {
 		path: ["Highlights", "Style"],

@@ -16,9 +16,8 @@ import { onUnmounted, ref, watch } from "vue";
 import { useEventListener, useKeyModifier } from "@vueuse/core";
 import { useStore } from "@/store/main";
 import { REACT_TYPEOF_TOKEN } from "@/common/Constant";
-import { imageHostToSrcset } from "@/common/Image";
+import { imageHostToSrcset, resolve7TVEmoteFormat } from "@/common/Image";
 import { TabToken, getSearchRange } from "@/common/Input";
-import { ChatAutocompleteIndex } from "@/common/chat/AutocompleteIndex";
 import { HookedInstance } from "@/common/ReactHooks";
 import {
 	defineFunctionHook,
@@ -27,6 +26,7 @@ import {
 	unsetNamedEventHandler,
 	unsetPropertyHook,
 } from "@/common/Reflection";
+import { ChatAutocompleteIndex } from "@/common/chat/AutocompleteIndex";
 import { useChannelContext } from "@/composable/channel/useChannelContext";
 import { useChatEmotes } from "@/composable/chat/useChatEmotes";
 import { useChatMessages } from "@/composable/chat/useChatMessages";
@@ -167,7 +167,12 @@ watch(
 		Object.keys(cosmetics.emotes).join("|"),
 		Object.entries(emotes.providers)
 			.filter(([provider]) => provider !== "EMOJI")
-			.map(([provider, sets]) => `${provider}:${Object.entries(sets).map(([id, set]) => `${id}:${set.emotes.length}`).join(",")}`)
+			.map(
+				([provider, sets]) =>
+					`${provider}:${Object.entries(sets)
+						.map(([id, set]) => `${id}:${set.emotes.length}`)
+						.join(",")}`,
+			)
 			.join("|"),
 		Object.keys(emotes.emojis).length,
 		Object.keys(messages.chatters).length,
@@ -362,7 +367,9 @@ function closeAutocompleteTray(): void {
 	if (!isAutocompleteTrayOpen()) return;
 
 	try {
-		const setTray = props.instance.component.props?.setTray as ((v?: Twitch.ChatTray | null) => unknown) | undefined;
+		const setTray = props.instance.component.props?.setTray as
+			| ((v?: Twitch.ChatTray | null) => unknown)
+			| undefined;
 		setTray?.(null);
 	} catch {
 		// noop
@@ -505,7 +512,10 @@ function handleTabPress(ev: KeyboardEvent | null, isBackwards?: boolean): void {
 	const previousMatches = tabState.value?.matches ?? [];
 	let matches = previousMatches;
 	let currentIndex = -1;
-	if (tabState.value && normalizeTabMatchToken(tabState.value.currentMatch.token) === normalizeTabMatchToken(currentToken)) {
+	if (
+		tabState.value &&
+		normalizeTabMatchToken(tabState.value.currentMatch.token) === normalizeTabMatchToken(currentToken)
+	) {
 		currentIndex = tabState.value.index;
 	} else {
 		currentIndex = previousMatches.findIndex(
@@ -725,7 +735,12 @@ function onKeyDown(ev: KeyboardEvent) {
 			}
 			break;
 		default:
-			if (hasActiveTabCycle() && !isModifierOnlyKey(ev.key) && ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") {
+			if (
+				hasActiveTabCycle() &&
+				!isModifierOnlyKey(ev.key) &&
+				ev.key !== "ArrowLeft" &&
+				ev.key !== "ArrowRight"
+			) {
 				clearTabCycle();
 			}
 			break;
@@ -871,7 +886,10 @@ function getMatchesHook(this: unknown, native: ((...args: unknown[]) => object[]
 						continue;
 					}
 
-					srcset = host.srcset ?? imageHostToSrcset(host, emote.provider, ua.preferredFormat);
+					srcset =
+						emote.provider === "7TV"
+							? imageHostToSrcset(host, "7TV", resolve7TVEmoteFormat(host, ua.preferredFormat))
+							: host.srcset ?? imageHostToSrcset(host, emote.provider, ua.preferredFormat);
 				}
 
 				results.unshift({
@@ -1105,21 +1123,17 @@ function syncProviders(): void {
 
 syncProviders();
 
-defineFunctionHook(
-	props.instance.component,
-	"componentDidUpdate",
-	function (this, old, ...args: unknown[]) {
-		syncProviders();
+defineFunctionHook(props.instance.component, "componentDidUpdate", function (this, old, ...args: unknown[]) {
+	syncProviders();
 
-		if (mod?.instance && typeof this.props.setTray === "function") {
-			mod.instance.setTray = this.props.setTray;
-			mod.instance.setModifierTray = this.props.setModifierTray;
-			mod.instance.clearModifierTray = this.props.clearModifierTray;
-		}
+	if (mod?.instance && typeof this.props.setTray === "function") {
+		mod.instance.setTray = this.props.setTray;
+		mod.instance.setModifierTray = this.props.setModifierTray;
+		mod.instance.clearModifierTray = this.props.clearModifierTray;
+	}
 
-		return old?.call(this, ...args);
-	},
-);
+	return old?.call(this, ...args);
+});
 
 onUnmounted(() => {
 	const component = props.instance.component;

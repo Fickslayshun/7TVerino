@@ -1,4 +1,4 @@
-import { imageHostToSrcset } from "@/common/Image";
+import { imageHostToSrcset, resolve7TVEmoteFormat } from "@/common/Image";
 import { log } from "@/common/Logger";
 import { iterateChangeMap } from "./handler";
 import { ChangeMap, EventContext, TypedWorkerMessage } from "..";
@@ -16,7 +16,11 @@ export function onEmoteSetCreate(ctx: EventContext, cm: ChangeMap<SevenTV.Object
 	for (const ae of es.emotes) {
 		if (!ae.data) continue;
 
-		ae.data.host.srcset = imageHostToSrcset(ae.data.host, "7TV", WorkerHttp.imageFormat);
+		ae.data.host.srcset = imageHostToSrcset(
+			ae.data.host,
+			"7TV",
+			resolve7TVEmoteFormat(ae.data.host, WorkerHttp.imageFormat),
+		);
 		ae.provider = es.provider;
 		ae.scope = es.scope;
 	}
@@ -41,7 +45,11 @@ export async function onEmoteSetUpdate(ctx: EventContext, cm: ChangeMap<SevenTV.
 					.equals(cm.id)
 					.modify((es) => {
 						if (v.data) {
-							v.data.host.srcset = imageHostToSrcset(v.data.host, "7TV", WorkerHttp.imageFormat);
+							v.data.host.srcset = imageHostToSrcset(
+								v.data.host,
+								"7TV",
+								resolve7TVEmoteFormat(v.data.host, WorkerHttp.imageFormat),
+							);
 							v.provider = "7TV";
 							if (!v.scope) v.scope = (es.flags ?? 0) & 4 ? "PERSONAL" : "CHANNEL";
 						}
@@ -74,8 +82,12 @@ export async function onEmoteSetUpdate(ctx: EventContext, cm: ChangeMap<SevenTV.
 						const i = es.emotes.findIndex((ae) => ae.id === oldValue.id);
 
 						const data = es.emotes[i].data;
-						if (data && data.host && !data.host.srcset) {
-							data.host.srcset = imageHostToSrcset(data.host, "7TV", WorkerHttp.imageFormat);
+						if (data && data.host) {
+							data.host.srcset = imageHostToSrcset(
+								data.host,
+								"7TV",
+								resolve7TVEmoteFormat(data.host, WorkerHttp.imageFormat),
+							);
 						}
 						es.emotes[i] = {
 							...es.emotes[i],

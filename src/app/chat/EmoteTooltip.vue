@@ -62,11 +62,7 @@
 			<div v-if="hasOverlayEmotes" class="divider" />
 			<div v-if="hasOverlayEmotes" class="zero-width-label">
 				<div v-for="e in overlayEmotes" :key="e.id" class="zero-width-emote">
-					<img
-						v-if="e.data"
-						class="overlaid-emote-icon"
-						:srcset="e.data.host.srcset ?? imageHostToSrcset(e.data.host, e.provider)"
-					/>
+					<img v-if="e.data" class="overlaid-emote-icon" :srcset="resolveOverlaySrcSet(e)" />
 					—
 					<span>{{ e.name }}</span>
 				</div>
@@ -79,7 +75,7 @@
 import { ref } from "vue";
 import { useTimeoutFn } from "@vueuse/shared";
 import { DecimalToStringRGBA } from "@/common/Color";
-import { imageHostToSrcset, imageHostToSrcsetWithsize } from "@/common/Image";
+import { imageHostToSrcset, imageHostToSrcsetWithsize, resolve7TVEmoteFormat } from "@/common/Image";
 import { Emoji, useEmoji } from "@/composable/useEmoji";
 import { useConfig } from "@/composable/useSettings";
 import SingleEmoji from "@/assets/svg/emoji/SingleEmoji.vue";
@@ -131,6 +127,18 @@ if (props.emote.unicode) {
 const creatorColor = ref("inherit");
 if (props.emote.data?.owner?.style?.color) {
 	creatorColor.value = DecimalToStringRGBA(props.emote.data.owner.style.color);
+}
+
+function resolveOverlaySrcSet(emote: SevenTV.ActiveEmote): string {
+	const host = emote.data?.host;
+	if (!host) return "";
+
+	const provider = emote.provider ?? "7TV";
+	if (provider === "7TV") {
+		return imageHostToSrcset(host, "7TV", resolve7TVEmoteFormat(host));
+	}
+
+	return host.srcset ?? imageHostToSrcset(host, provider);
 }
 </script>
 

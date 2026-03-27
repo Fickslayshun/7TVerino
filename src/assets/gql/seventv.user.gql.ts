@@ -20,6 +20,196 @@ export const actorQuery = gql`
 	}
 `;
 
+export const actorCosmeticInventoryQuery = gql`
+	query GetActorCosmeticInventory {
+		user: actor {
+			id
+			username
+			style {
+				paint_id
+				badge_id
+			}
+			cosmetics {
+				id
+				kind
+				selected
+			}
+		}
+	}
+`;
+
+export const cosmeticsByIDQuery = gql`
+	query GetCosmeticsByID($list: [ObjectID!]) {
+		inventory: cosmetics(list: $list) {
+			paints {
+				id
+				name
+				color
+				gradients {
+					function
+					canvas_repeat
+					size: canvas_size
+					at
+					stops {
+						at
+						color
+					}
+					image_url
+					shape
+					angle
+					repeat
+				}
+				shadows {
+					x_offset
+					y_offset
+					radius
+					color
+				}
+				text {
+					weight
+					transform
+					stroke {
+						color
+						width
+					}
+					shadows {
+						x_offset
+						y_offset
+						radius
+						color
+					}
+				}
+			}
+			badges {
+				id
+				name
+				tag
+				tooltip
+				host {
+					url
+					files {
+						name
+						format
+						width
+						height
+					}
+				}
+			}
+		}
+	}
+`;
+
+export const actorCosmeticInventoryV4QueryText = /* GraphQL */ `
+	query GetActorCosmeticInventoryV4 {
+		users {
+			me {
+				inventory {
+					paints {
+						to {
+							paintId
+							paint {
+								id
+								name
+								data {
+									layers {
+										id
+										opacity
+										ty {
+											__typename
+											... on PaintLayerTypeSingleColor {
+												color {
+													r
+													g
+													b
+													a
+													hex
+												}
+											}
+											... on PaintLayerTypeLinearGradient {
+												angle
+												repeating
+												stops {
+													at
+													color {
+														r
+														g
+														b
+														a
+														hex
+													}
+												}
+											}
+											... on PaintLayerTypeRadialGradient {
+												repeating
+												shape
+												stops {
+													at
+													color {
+														r
+														g
+														b
+														a
+														hex
+													}
+												}
+											}
+											... on PaintLayerTypeImage {
+												images {
+													url
+													mime
+													size
+													scale
+													width
+													height
+													frameCount
+												}
+											}
+										}
+									}
+									shadows {
+										color {
+											hex
+										}
+										offsetX
+										offsetY
+										blur
+									}
+								}
+							}
+						}
+					}
+					badges {
+						to {
+							badgeId
+							badge {
+								id
+								name
+								images {
+									url
+									mime
+									size
+									scale
+									width
+									height
+									frameCount
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+`;
+
+export const updateSelectedCosmeticMutation = gql`
+	mutation UpdateSelectedCosmetic($id: ObjectID!, $update: UserCosmeticUpdate!) {
+		user(id: $id) {
+			cosmetics(update: $update)
+		}
+	}
+`;
+
 export const userQuery = gql`
 	query GetUser($id: ObjectID!) {
 		user: user(id: $id) {
@@ -119,5 +309,111 @@ export namespace userQuery {
 export namespace actorQuery {
 	export interface Result {
 		user: SevenTV.User;
+	}
+}
+
+export namespace actorCosmeticInventoryQuery {
+	export interface UserCosmeticSelection {
+		id: string;
+		kind: SevenTV.CosmeticKind;
+		selected: boolean;
+	}
+
+	export interface Result {
+		user: {
+			id: string;
+			username: string;
+			style: {
+				paint_id?: string | null;
+				badge_id?: string | null;
+			} | null;
+			cosmetics: UserCosmeticSelection[];
+		} | null;
+	}
+}
+
+export namespace cosmeticsByIDQuery {
+	export interface Variables {
+		list?: string[];
+	}
+
+	export interface Result {
+		inventory: {
+			paints: Array<{
+				id: string;
+				name: string;
+				color: number | null;
+				gradients: SevenTV.CosmeticPaintGradient[];
+				shadows?: SevenTV.CosmeticPaintShadow[] | null;
+				text?: SevenTV.CosmeticPaintText | null;
+			}>;
+			badges: Array<{
+				id: string;
+				name: string;
+				tag?: string | null;
+				tooltip?: string | null;
+				host: SevenTV.ImageHost;
+			}>;
+		} | null;
+	}
+}
+
+export namespace actorCosmeticInventoryV4Query {
+	export interface Paint {
+		id: string;
+		name: string;
+		data: {
+			layers: SevenTV.CosmeticPaintLayer[];
+			shadows: Array<{
+				color: Pick<SevenTV.CosmeticColor, "hex">;
+				offsetX: number;
+				offsetY: number;
+				blur: number;
+			}>;
+		};
+	}
+
+	export interface Badge {
+		id: string;
+		name: string;
+		images: SevenTV.CosmeticAssetImage[];
+	}
+
+	export interface Result {
+		users: {
+			me: {
+				inventory: {
+					paints: Array<{
+						to: {
+							paintId: string;
+							paint: Paint | null;
+						} | null;
+					}>;
+					badges: Array<{
+						to: {
+							badgeId: string;
+							badge: Badge | null;
+						} | null;
+					}>;
+				} | null;
+			} | null;
+		} | null;
+	}
+}
+
+export namespace updateSelectedCosmeticMutation {
+	export interface Variables {
+		id: string;
+		update: {
+			id: string;
+			kind: SevenTV.CosmeticKind;
+			selected: boolean;
+		};
+	}
+
+	export interface Result {
+		user: {
+			cosmetics: boolean;
+		} | null;
 	}
 }

@@ -7,7 +7,7 @@
 			'inline-chat': inlineChat,
 		}"
 		:style="inlineChatStyle"
-		:ratio="determineRatio(emote)"
+		:ratio="emoteRatio"
 		@mouseenter="onShowTooltip"
 		@mouseleave="hide()"
 		@click="(ev: MouseEvent) => [onShowEmoteCard(ev), emit('emote-click', ev, emote)]"
@@ -15,12 +15,13 @@
 		<img
 			v-if="!emote.unicode && emote.data && emote.data.host"
 			class="seventv-chat-emote"
-			:src="resolveSrc(emote)"
-			:srcset="resolveSrcSet(emote)"
+			:src="primaryImage.src"
+			:srcset="primaryImage.srcset"
 			:alt="emote.name"
 			:class="{ blur: hideUnlisted && emote.data?.listed === false }"
-			loading="lazy"
-			decoding="async"
+			:loading="inlineChat ? 'eager' : 'lazy'"
+			:decoding="inlineChat ? 'auto' : 'async'"
+			:fetchpriority="inlineChat ? 'high' : 'auto'"
 			@load="onImageLoad"
 		/>
 		<SingleEmoji
@@ -33,14 +34,17 @@
 			@mouseleave="hide()"
 		/>
 
-		<template v-for="e of overlaid" :key="e.id">
+		<template v-for="overlay of overlayImages" :key="overlay.id">
 			<img
-				v-if="e.data && e.data.host"
+				v-if="overlay.emote.data && overlay.emote.data.host"
 				class="seventv-chat-emote zero-width-emote"
-				:class="{ blur: hideUnlisted && e.data?.listed === false }"
-				:src="resolveSrc(e)"
-				:srcset="resolveSrcSet(e)"
-				:alt="' ' + e.name"
+				:class="{ blur: hideUnlisted && overlay.emote.data?.listed === false }"
+				:src="overlay.src"
+				:srcset="overlay.srcset"
+				:alt="' ' + overlay.emote.name"
+				:loading="inlineChat ? 'eager' : 'lazy'"
+				:decoding="inlineChat ? 'auto' : 'async'"
+				:fetchpriority="inlineChat ? 'high' : 'auto'"
 			/>
 		</template>
 
@@ -65,8 +69,13 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from "vue";
 import { useDocumentVisibility } from "@vueuse/core";
-import { imageHostToSrcset } from "@/common/Image";
-import { determineRatio } from "@/common/Image";
+import {
+	determineRatio,
+	ensureImageHostConnection,
+	imageHostToSrcset,
+	resolve7TVEmoteFormat,
+	resolveImageHostSrc,
+} from "@/common/Image";
 import { useChatPerformance } from "@/composable/chat/useChatPerformance";
 import { useConfig } from "@/composable/useSettings";
 import { useTooltip } from "@/composable/useTooltip";
@@ -106,8 +115,6 @@ const boxRef = ref<HTMLImageElement | HTMLUnknownElement>();
 const showEmoteCard = ref(false);
 const cardPos = ref<[number, number]>([0, 0]);
 
-const imgEl = ref<HTMLImageElement>();
-
 const src = ref("");
 
 const baseWidth = ref(0);
@@ -124,6 +131,19 @@ const inlineChatStyle = computed(() => {
 		"--seventv-inline-emote-size": `${props.scale * 2}em`,
 	};
 });
+const emoteRatio = computed(() => determineRatio(props.emote));
+const primaryImage = computed(() => ({
+	src: resolveSrc(props.emote),
+	srcset: resolveSrcSet(props.emote),
+}));
+const overlayImages = computed(() =>
+	Object.values(props.overlaid ?? {}).map((emote) => ({
+		id: emote.id,
+		emote,
+		src: resolveSrc(emote),
+		srcset: resolveSrcSet(emote),
+	})),
+);
 
 const onImageLoad = (event: Event) => {
 	if (!(event.target instanceof HTMLImageElement)) return;
@@ -134,22 +154,20 @@ const onImageLoad = (event: Event) => {
 	baseHeight.value = Math.round(img.naturalHeight / props.scale);
 
 	src.value = img.currentSrc;
-
-	imgEl.value = img;
 };
 
 function processSrcSet(emote: SevenTV.ActiveEmote) {
 	const provider = emote.provider ?? "7TV";
+	const host = emote.data?.host;
+	if (!host) return "";
+	const requestedFormat = props.format ?? preferredFormat;
+	const resolvedFormat = provider === "7TV" ? resolve7TVEmoteFormat(host, requestedFormat) : requestedFormat;
 
-	if (emote.data?.host) {
-		if (props.scale != 1 || !emote.data.host.srcset) {
-			return imageHostToSrcset(emote.data.host, provider, undefined, 2, props.scale);
-		} else {
-			return emote.data.host.srcset;
-		}
+	if (provider === "7TV" || props.scale != 1 || !host.srcset) {
+		return imageHostToSrcset(host, provider, resolvedFormat, 2, props.scale);
 	}
 
-	return "";
+	return host.srcset;
 }
 
 function buildStaticSrcSet(emote: SevenTV.ActiveEmote): string {
@@ -188,6 +206,7 @@ function resolveSrc(emote: SevenTV.ActiveEmote): string | undefined {
 	if (!host) return undefined;
 
 	const provider = emote.provider ?? "7TV";
+	const requestedFormat = props.format ?? preferredFormat;
 
 	if (props.unload) return undefined;
 
@@ -198,10 +217,11 @@ function resolveSrc(emote: SevenTV.ActiveEmote): string | undefined {
 		}
 	}
 
-	const preferredFile =
-		provider === "7TV"
-			? host.files.find((file) => file.format === preferredFormat) ?? host.files[0]
-			: host.files[0];
+	if (provider === "7TV") {
+		return resolveImageHostSrc(host, "7TV", resolve7TVEmoteFormat(host, requestedFormat)) || undefined;
+	}
+
+	const preferredFile = host.files.find((file) => file.format === requestedFormat) ?? host.files[0];
 
 	return preferredFile ? `${host.url}/${preferredFile.name}` : undefined;
 }
@@ -271,6 +291,14 @@ watch(
 	{ immediate: true },
 );
 
+watch(
+	() => props.emote.data?.host?.url,
+	() => {
+		ensureImageHostConnection(props.emote.data?.host);
+	},
+	{ immediate: true },
+);
+
 onBeforeUnmount(hide);
 </script>
 
@@ -283,9 +311,26 @@ onBeforeUnmount(hide);
 .seventv-emote-box.inline-chat {
 	display: inline-grid;
 	align-items: end;
+	min-height: var(--seventv-inline-emote-size);
 	line-height: 0;
 	vertical-align: middle;
 	overflow: visible;
+
+	&[ratio="1"] {
+		width: var(--seventv-inline-emote-size);
+	}
+
+	&[ratio="2"] {
+		width: calc(var(--seventv-inline-emote-size) * 1.5);
+	}
+
+	&[ratio="3"] {
+		width: calc(var(--seventv-inline-emote-size) * 2);
+	}
+
+	&[ratio="4"] {
+		width: calc(var(--seventv-inline-emote-size) * 3);
+	}
 }
 
 .with-border {

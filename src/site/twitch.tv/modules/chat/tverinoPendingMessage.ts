@@ -1,14 +1,25 @@
 import type { ChatMessage } from "@/common/chat/ChatMessage";
+import { MessageType } from "@/site/twitch.tv";
 import type { TypedWorkerMessage } from "@/worker";
 
 const pendingSendResults = new Map<string, TypedWorkerMessage<"TVERINO_CHAT_SEND_RESULT">>();
 const selfMessageStates = new Map<string, TVerinoSelfMessageState>();
+const PENDING_TYPED_REWARD_TTL_MS = 30_000;
+const pendingTypedRewardRedemptions: PendingTypedRewardRedemption[] = [];
 
 export interface TVerinoSelfMessageState {
 	badges?: Record<string, string>;
 	badgeDynamicData?: Record<string, string>;
 	displayBadges?: Twitch.ChatBadge[];
 	user?: Partial<Twitch.ChatUser>;
+}
+
+interface PendingTypedRewardRedemption {
+	channelID: string;
+	actorID: string;
+	createdAt: number;
+	messageBody: string;
+	reward: Twitch.ChannelPointsRewardMessage["reward"];
 }
 
 export function applyTVerinoSendResultToMessage(
@@ -140,4 +151,103 @@ export function consumePendingTVerinoSendResult(nonce: string): TypedWorkerMessa
 	}
 
 	return detail;
+}
+
+export function rememberPendingTVerinoTypedRewardRedemption(
+	channelID: string,
+	actorID: string,
+	reward: Pick<Twitch.ChannelPointsRewardMessage["reward"], "cost" | "name">,
+	messageBody: string,
+): void {
+	const normalizedChannelID = channelID.trim();
+	const normalizedActorID = actorID.trim();
+	const normalizedMessageBody = normalizePendingTypedRewardMessageBody(messageBody);
+	if (!normalizedChannelID || !normalizedActorID || !normalizedMessageBody) return;
+
+	prunePendingTypedRewardRedemptions();
+	pendingTypedRewardRedemptions.push({
+		channelID: normalizedChannelID,
+		actorID: normalizedActorID,
+		createdAt: Date.now(),
+		messageBody: normalizedMessageBody,
+		reward: {
+			cost: reward.cost,
+			isHighlighted: false,
+			name: reward.name,
+		},
+	});
+}
+
+export function promotePendingTVerinoTypedRewardMessage(
+	msgData: Twitch.AnyMessage,
+	channelID: string,
+	actorID: string | null | undefined,
+): Twitch.AnyMessage {
+	if (msgData.type !== MessageType.MESSAGE || !actorID) return msgData;
+
+	prunePendingTypedRewardRedemptions();
+
+	const message = msgData as Twitch.ChatMessage;
+	const author = message.user;
+	const normalizedChannelID = channelID.trim();
+	const normalizedActorID = actorID.trim();
+	const normalizedMessageBody = normalizePendingTypedRewardMessageBody(message.messageBody ?? "");
+	if (!normalizedChannelID || !normalizedActorID || !normalizedMessageBody) return msgData;
+	if (!author || author.userID !== normalizedActorID) return msgData;
+
+	const matchIndex = pendingTypedRewardRedemptions.findIndex(
+		(entry) =>
+			entry.channelID === normalizedChannelID &&
+			entry.actorID === normalizedActorID &&
+			entry.messageBody === normalizedMessageBody,
+	);
+	if (matchIndex === -1) return msgData;
+
+	const [match] = pendingTypedRewardRedemptions.splice(matchIndex, 1);
+	const displayName = author.userDisplayName ?? author.displayName ?? author.userLogin ?? "";
+
+	const promotedMessage: Twitch.ChannelPointsRewardMessage = {
+		id: message.id,
+		type: MessageType.CHANNEL_POINTS_REWARD,
+		sourceRoomID: message.sourceRoomID,
+		sourceData: message.sourceData,
+		sharedChat: message.sharedChat,
+		badges: message.badges ? { ...message.badges } : undefined,
+		badgeDynamicData: message.badgeDynamicData ? { ...message.badgeDynamicData } : undefined,
+		isHistorical: message.isHistorical,
+		nonce: message.nonce,
+		seventv: message.seventv,
+		t: message.t,
+		element: message.element,
+		sendState: message.sendState,
+		channelID: message.channelID,
+		notifySent: message.notifySent,
+		displayName,
+		login: author.userLogin ?? "",
+		userID: author.userID,
+		reward: {
+			...match.reward,
+		},
+		message: {
+			...message,
+			user: { ...message.user },
+			badges: message.badges ? { ...message.badges } : {},
+			badgeDynamicData: message.badgeDynamicData ? { ...message.badgeDynamicData } : {},
+			messageParts: Array.isArray(message.messageParts) ? [...message.messageParts] : [],
+			reply: message.reply ? { ...message.reply } : undefined,
+		},
+	};
+
+	return promotedMessage;
+}
+
+function normalizePendingTypedRewardMessageBody(messageBody: string): string {
+	return messageBody.replace("\n", " ").trim();
+}
+
+function prunePendingTypedRewardRedemptions(now = Date.now()): void {
+	for (let index = pendingTypedRewardRedemptions.length - 1; index >= 0; index--) {
+		if (now - pendingTypedRewardRedemptions[index].createdAt <= PENDING_TYPED_REWARD_TTL_MS) continue;
+		pendingTypedRewardRedemptions.splice(index, 1);
+	}
 }

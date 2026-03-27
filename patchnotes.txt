@@ -1,5 +1,12 @@
 # Patch Notes
 
+27/03/2026
+- Added Channel Specific 7TV Cosmetics setting
+- Fixed a bug causing 'Chat Cleared by Moderator' to show on new 7TVerino tabs
+- Fixed a bug causing channel point redemptions to show in chat twice
+- Fixed a bug not allowing channel point redemptions if you had to enter a message with it
+- Improved chat performance and memory usage
+
 25/03/2026
 - Chatbox now expands as message grows in length
 - Improved memory performance

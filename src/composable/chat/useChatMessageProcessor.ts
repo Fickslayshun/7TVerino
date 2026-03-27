@@ -21,6 +21,7 @@ import { MessagePartType, MessageType, ModerationType } from "@/site/twitch.tv";
 import {
 	applyTVerinoSendResultToMessage,
 	consumePendingTVerinoSendResult,
+	promotePendingTVerinoTypedRewardMessage,
 } from "@/site/twitch.tv/modules/chat/tverinoPendingMessage";
 import BasicSystemMessage from "@/app/chat/msg/BasicSystemMessage.vue";
 
@@ -66,7 +67,6 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 	const showMentionHighlights = useConfig("highlights.basic.mention");
 	const showFirstTimeChatter = useConfig<boolean>("highlights.basic.first_time_chatter");
 	const showSelfHighlights = useConfig<boolean>("highlights.basic.self");
-	const shouldPlaySoundOnMention = useConfig<boolean>("highlights.basic.mention_sound");
 	const shouldFlashTitleOnHighlight = useConfig<boolean>("highlights.basic.mention_title_flash");
 	const showRestrictedLowTrustUser = useConfig<boolean>("highlights.basic.restricted_low_trust_user");
 	const showMonitoredLowTrustUser = useConfig<boolean>("highlights.basic.monitored_low_trust_user");
@@ -138,14 +138,19 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 	});
 
 	const onMessage = (msgData: Twitch.AnyMessage): boolean => {
-		const authorData = getTwitchAuthorData(msgData);
-		const messageBody = IsDisplayableMessage(msgData)
-			? (msgData.messageBody ?? msgData.message?.messageBody ?? "").replace("\n", " ")
+		const resolvedMsgData = promotePendingTVerinoTypedRewardMessage(msgData, ctx.id, identity.value?.id);
+		const authorData = getTwitchAuthorData(resolvedMsgData);
+		const messageBody = IsDisplayableMessage(resolvedMsgData)
+			? (resolvedMsgData.messageBody ?? resolvedMsgData.message?.messageBody ?? "").replace("\n", " ")
 			: "";
-		const messageTimestamp = IsChatMessage(msgData) ? msgData.timestamp : msgData.message?.timestamp ?? 0;
+		const messageTimestamp = IsChatMessage(resolvedMsgData)
+			? resolvedMsgData.timestamp
+			: resolvedMsgData.message?.timestamp ?? 0;
 		const replacementTarget =
-			typeof msgData.nonce === "string"
-				? messages.find((message) => message.nonce === msgData.nonce && message.id !== msgData.id)
+			typeof resolvedMsgData.nonce === "string"
+				? messages.find(
+						(message) => message.nonce === resolvedMsgData.nonce && message.id !== resolvedMsgData.id,
+				  )
 				: identity.value && authorData && authorData.userID === identity.value.id && messageBody
 				  ? messages.find(
 							(message) =>
@@ -155,12 +160,12 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 								Math.abs(message.timestamp - messageTimestamp) <= 15000,
 				    )
 				  : null;
-		const msg = new ChatMessage(msgData.id);
+		const msg = new ChatMessage(resolvedMsgData.id);
 		msg.channelID = ctx.id;
 
-		messages.handlers.forEach((h) => h(msgData));
+		messages.handlers.forEach((h) => h(resolvedMsgData));
 
-		switch (msgData.type) {
+		switch (resolvedMsgData.type) {
 			case MessageType.MESSAGE:
 			case MessageType.SUBSCRIPTION:
 			case MessageType.RESUBSCRIPTION:
@@ -172,21 +177,21 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 			case MessageType.BITS_BADGE_TIER_MESSAGE:
 			case MessageType.VIEWER_MILESTONE:
 			case MessageType.CONNECTED:
-				onChatMessage(msg, msgData, true, replacementTarget);
+				onChatMessage(msg, resolvedMsgData, true, replacementTarget);
 				break;
 			case MessageType.CHANNEL_POINTS_REWARD:
-				if (!(msgData as Twitch.ChannelPointsRewardMessage).animationID) {
-					onChatMessage(msg, msgData, true, replacementTarget);
+				if (!(resolvedMsgData as Twitch.ChannelPointsRewardMessage).animationID) {
+					onChatMessage(msg, resolvedMsgData, true, replacementTarget);
 				} else {
 					return false;
 				}
 				break;
 			case MessageType.MODERATION:
-				if (!IsModerationMessage(msgData)) break;
-				onModerationMessage(msgData);
+				if (!IsModerationMessage(resolvedMsgData)) break;
+				onModerationMessage(resolvedMsgData);
 				break;
 			case MessageType.MESSAGE_ID_UPDATE:
-				onMessageIdUpdate(msgData as Twitch.IDUpdateMessage);
+				onMessageIdUpdate(resolvedMsgData as Twitch.IDUpdateMessage);
 				break;
 			case MessageType.CLEAR:
 				onClearChat();
@@ -602,8 +607,8 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 	);
 
 	watch(
-		[identity, showMentionHighlights, shouldPlaySoundOnMention, shouldFlashTitleOnHighlight],
-		([identity, enabled, sound, flash]) => {
+		[identity, showMentionHighlights, shouldFlashTitleOnHighlight],
+		([identity, enabled, flash]) => {
 			const rxs = identity ? `\\b${identity.username}\\b` : null;
 			if (!rxs) return;
 
@@ -615,7 +620,6 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 						!!(identity && msg.author && msg.author.username !== identity.username && rx.test(msg.body)),
 					label: "Mentions You",
 					color: "#e13232",
-					soundPath: sound ? "#ping" : undefined,
 					flashTitleFn: flash
 						? (msg: ChatMessage) => `[Mention] @${msg.author?.username ?? "A user"} mentioned you`
 						: undefined,
@@ -634,7 +638,6 @@ export function useChatMessageProcessor(ctx: ChannelContext, options: ChatMessag
 						),
 					label: "Replying to You",
 					color: "#e13232",
-					soundPath: sound ? "#ping" : undefined,
 					flashTitleFn: flash
 						? (msg: ChatMessage) => `[Reply] @${msg.author?.username ?? "A user"} replied to you`
 						: undefined,

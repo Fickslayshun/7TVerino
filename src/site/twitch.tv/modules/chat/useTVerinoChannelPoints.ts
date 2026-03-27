@@ -1,13 +1,9 @@
 import { computed, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useStore } from "@/store/main";
-import { ChatMessage } from "@/common/chat/ChatMessage";
 import type { ChannelContext } from "@/composable/channel/useChannelContext";
-import { useChatMessages } from "@/composable/chat/useChatMessages";
 import { useApollo } from "@/composable/useApollo";
-import { MessageType } from "@/site/twitch.tv";
 import { redeemTwitchCustomReward } from "./twitchRedeemCustomReward";
-import PointsRewardMessage from "@/app/chat/msg/43.PointsReward.vue";
 import type { DocumentNode } from "graphql";
 
 interface UnknownRecord {
@@ -40,6 +36,7 @@ export interface TVerinoChannelPointsReward {
 	cost: number;
 	backgroundColor: string;
 	kind: string;
+	requiresUserInput: boolean;
 	cooldownExpiresAt: string;
 	globalCooldownSeconds: number;
 	isEnabled: boolean;
@@ -65,6 +62,12 @@ const operationDocumentCache = new WeakMap<ApolloQueryClient, Map<string, Docume
 const CHANNEL_POINTS_CACHE_STALE_MS = 2 * 60 * 1000;
 const CHANNEL_POINTS_CACHE_LIMIT = 32;
 const channelPointsStateCache = new Map<string, CachedChannelPointsState>();
+const REWARD_USER_INPUT_KEYS = [
+	"isUserInputRequired",
+	"is_user_input_required",
+	"requiresUserInput",
+	"userInputRequired",
+] as const;
 
 interface CachedChannelPointsState {
 	fetchedAt: number;
@@ -78,7 +81,6 @@ interface CachedChannelPointsState {
 
 export function useTVerinoChannelPoints(ctx: ChannelContext) {
 	const apollo = useApollo();
-	const messages = useChatMessages(ctx);
 	const { identity } = storeToRefs(useStore());
 
 	const channelPointsLoading = ref(false);
@@ -90,7 +92,6 @@ export function useTVerinoChannelPoints(ctx: ChannelContext) {
 	const channelPointsRewards = ref<TVerinoChannelPointsReward[]>([]);
 	const channelPointsIcon = ref<TVerinoChannelPointsIcon | null>(null);
 	const redeemingRewardID = ref("");
-	const redeemedRewardID = ref("");
 	let refreshToken = 0;
 
 	const channelPointsVisible = computed(
@@ -210,31 +211,42 @@ export function useTVerinoChannelPoints(ctx: ChannelContext) {
 		channelPointsRewards.value = [];
 		channelPointsIcon.value = null;
 		redeemingRewardID.value = "";
-		redeemedRewardID.value = "";
 		channelPointsNotice.value = "";
 		channelPointsNoticeIsError.value = false;
 		channelPointsLoading.value = false;
 	}
 
-	async function redeemReward(reward: TVerinoChannelPointsReward): Promise<void> {
+	async function redeemReward(reward: TVerinoChannelPointsReward, textInput?: string): Promise<boolean> {
 		const channelID = ctx.id?.trim();
 		if (!channelID) {
 			channelPointsNotice.value = "Channel unavailable.";
 			channelPointsNoticeIsError.value = true;
-			return;
+			return false;
+		}
+
+		if (!identity.value?.id || !identity.value?.username) {
+			channelPointsNotice.value = "Log in to Twitch to redeem channel point rewards.";
+			channelPointsNoticeIsError.value = true;
+			return false;
 		}
 
 		if (!isRedeemableCustomReward(reward)) {
 			channelPointsNotice.value =
 				"Only custom reward redemption is wired right now. Native automatic rewards still need Twitch's separate flow.";
 			channelPointsNoticeIsError.value = true;
-			return;
+			return false;
 		}
 
-		if (redeemingRewardID.value) return;
+		const normalizedTextInput = typeof textInput === "string" ? textInput.trim() : "";
+		if (reward.requiresUserInput && !normalizedTextInput) {
+			channelPointsNotice.value = `Enter a response for ${reward.title} before redeeming.`;
+			channelPointsNoticeIsError.value = true;
+			return false;
+		}
+
+		if (redeemingRewardID.value) return false;
 
 		redeemingRewardID.value = reward.id;
-		redeemedRewardID.value = "";
 		channelPointsNotice.value = "";
 		channelPointsNoticeIsError.value = false;
 
@@ -245,6 +257,8 @@ export function useTVerinoChannelPoints(ctx: ChannelContext) {
 					rewardID: reward.id,
 					cost: reward.cost,
 					title: reward.title,
+					prompt: reward.prompt || null,
+					textInput: normalizedTextInput || null,
 				},
 				apollo.value,
 			);
@@ -265,22 +279,18 @@ export function useTVerinoChannelPoints(ctx: ChannelContext) {
 				);
 			}
 
-			redeemedRewardID.value = reward.id;
 			channelPointsNotice.value = `Redeemed ${reward.title}.`;
 			channelPointsNoticeIsError.value = false;
 			persistCurrentChannelPointsState();
-			emitLocalRewardRedemptionMessage(reward);
 			void refreshChannelPointsState({ background: true });
+			return true;
 		} catch (error) {
-			channelPointsNotice.value = toErrorMessage(error, `Unable to redeem ${reward.title}.`);
+			channelPointsNotice.value = toRewardRedemptionErrorMessage(error, `Unable to redeem ${reward.title}.`);
 			channelPointsNoticeIsError.value = true;
+			return false;
 		} finally {
 			redeemingRewardID.value = "";
 		}
-	}
-
-	function clearRedeemedReward(): void {
-		redeemedRewardID.value = "";
 	}
 
 	function persistCurrentChannelPointsState(): void {
@@ -309,35 +319,6 @@ export function useTVerinoChannelPoints(ctx: ChannelContext) {
 		channelPointsLoading.value = false;
 	}
 
-	function emitLocalRewardRedemptionMessage(reward: TVerinoChannelPointsReward): void {
-		const currentIdentity = identity.value;
-		const actorLogin = currentIdentity?.username ?? "";
-		const actorDisplayName =
-			currentIdentity && "displayName" in currentIdentity && currentIdentity.displayName
-				? currentIdentity.displayName
-				: actorLogin || "You";
-		const messageID = `tverino-reward:${ctx.id}:${reward.id}:${Date.now()}`;
-		const msgData = {
-			id: messageID,
-			type: MessageType.CHANNEL_POINTS_REWARD,
-			channelID: ctx.id,
-			displayName: actorDisplayName,
-			login: actorLogin,
-			userID: currentIdentity?.id ?? "",
-			message: null,
-			reward: {
-				cost: reward.cost,
-				isHighlighted: false,
-				name: reward.title,
-			},
-			isHistorical: false,
-		} as unknown as Twitch.ChannelPointsRewardMessage;
-		const message = new ChatMessage(messageID).setComponent(PointsRewardMessage, { msgData });
-		message.channelID = ctx.id;
-		message.setTimestamp(Date.now());
-		messages.add(message, true);
-	}
-
 	return {
 		channelPointsBalance,
 		channelPointsBalanceCompact,
@@ -349,10 +330,8 @@ export function useTVerinoChannelPoints(ctx: ChannelContext) {
 		channelPointsNotice,
 		channelPointsNoticeIsError,
 		channelPointsRewards,
-		clearRedeemedReward,
 		redeemReward,
 		redeemableRewardIDs,
-		redeemedRewardID,
 		redeemingRewardID,
 		channelPointsSupported,
 		channelPointsVisible,
@@ -510,7 +489,8 @@ function extractChannelPointRewards(data: unknown): TVerinoChannelPointsReward[]
 	for (const reward of rewardCandidates) {
 		const normalized = normalizeReward(reward);
 		if (!normalized) continue;
-		rewardsByID.set(normalized.id, normalized);
+		const previous = rewardsByID.get(normalized.id);
+		rewardsByID.set(normalized.id, previous ? mergeReward(previous, normalized) : normalized);
 	}
 
 	return [...rewardsByID.values()].sort(
@@ -538,11 +518,31 @@ function normalizeReward(value: UnknownRecord): TVerinoChannelPointsReward | nul
 			readString(value, "defaultBackgroundColor") ||
 			readString(value, "themeColor"),
 		kind: readString(value, "__typename") || "Reward",
+		requiresUserInput: readRewardRequiresUserInput(value),
 		cooldownExpiresAt: readRewardCooldownExpiresAt(value),
 		globalCooldownSeconds: readRewardGlobalCooldownSeconds(value),
 		isEnabled: readBoolean(value, "isEnabled", true),
 		isInStock: readBoolean(value, "isInStock", true),
 		isPaused: readBoolean(value, "isPaused", false),
+	};
+}
+
+function mergeReward(
+	existing: TVerinoChannelPointsReward,
+	incoming: TVerinoChannelPointsReward,
+): TVerinoChannelPointsReward {
+	return {
+		...existing,
+		...incoming,
+		prompt: incoming.prompt || existing.prompt,
+		backgroundColor: incoming.backgroundColor || existing.backgroundColor,
+		kind: incoming.kind || existing.kind,
+		requiresUserInput: existing.requiresUserInput || incoming.requiresUserInput,
+		cooldownExpiresAt: incoming.cooldownExpiresAt || existing.cooldownExpiresAt,
+		globalCooldownSeconds: incoming.globalCooldownSeconds || existing.globalCooldownSeconds,
+		isEnabled: existing.isEnabled && incoming.isEnabled,
+		isInStock: existing.isInStock && incoming.isInStock,
+		isPaused: existing.isPaused || incoming.isPaused,
 	};
 }
 
@@ -553,6 +553,13 @@ function isRedeemableCustomReward(reward: Pick<TVerinoChannelPointsReward, "kind
 
 function getRewardTitle(value: UnknownRecord): string {
 	return readString(value, "title") || readString(value, "prompt") || readString(value, "name");
+}
+
+function readRewardRequiresUserInput(value: UnknownRecord): boolean {
+	const direct = readBooleanishField(value, REWARD_USER_INPUT_KEYS);
+	if (direct !== null) return direct;
+
+	return findFirstBooleanPropertyValue(value, REWARD_USER_INPUT_KEYS) ?? false;
 }
 
 function readRewardCooldownExpiresAt(value: UnknownRecord): string {
@@ -595,6 +602,15 @@ function findFirstPropertyValue(data: unknown, key: string): unknown {
 	walkUnknown(data, (value) => {
 		if (found !== undefined || !(key in value)) return;
 		found = value[key];
+	});
+	return found;
+}
+
+function findFirstBooleanPropertyValue(data: unknown, keys: readonly string[]): boolean | null {
+	let found: boolean | null = null;
+	walkUnknown(data, (value) => {
+		if (found !== null) return;
+		found = readBooleanishField(value, keys);
 	});
 	return found;
 }
@@ -649,8 +665,38 @@ function readBoolean(value: UnknownRecord, key: string, fallback: boolean): bool
 	return typeof field === "boolean" ? field : fallback;
 }
 
+function readBooleanishField(value: UnknownRecord, keys: readonly string[]): boolean | null {
+	for (const key of keys) {
+		const normalized = normalizeBooleanishValue(value[key]);
+		if (normalized !== null) return normalized;
+	}
+
+	return null;
+}
+
+function normalizeBooleanishValue(value: unknown): boolean | null {
+	if (typeof value === "boolean") return value;
+	if (value === 1 || value === "1") return true;
+	if (value === 0 || value === "0") return false;
+	if (typeof value !== "string") return null;
+
+	const normalized = value.trim().toLowerCase();
+	if (normalized === "true") return true;
+	if (normalized === "false") return false;
+	return null;
+}
+
 function toErrorMessage(error: unknown, fallback: string): string {
 	if (error instanceof Error && error.message.trim()) return error.message;
 	if (typeof error === "string" && error.trim()) return error;
 	return fallback;
+}
+
+function toRewardRedemptionErrorMessage(error: unknown, fallback: string): string {
+	const message = toErrorMessage(error, fallback);
+	if (/unauthenticated|auth unavailable|oauth/i.test(message)) {
+		return "Log in to Twitch to redeem channel point rewards.";
+	}
+
+	return message;
 }

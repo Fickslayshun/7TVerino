@@ -61,6 +61,7 @@
 						:format="properties.imageFormat"
 						:overlaid="token.content.overlaid"
 						:clickable="true"
+						:inline-chat="true"
 						:scale="Number(emoteScale)"
 					/>
 					<span v-if="token.content" :style="{ color: token.content.cheerColor }">
@@ -93,10 +94,11 @@
 
 <script lang="ts">
 const timestampCache = new Map<string, string>();
+const MAX_TIMESTAMP_CACHE_SIZE = 1024;
 </script>
 
 <script setup lang="ts">
-import { defineAsyncComponent, ref, toRef, watch } from "vue";
+import { computed, defineAsyncComponent, ref, toRef, watch } from "vue";
 import { SetHexAlpha } from "@/common/Color";
 import { formatDateTime } from "@/common/IntlFormatter";
 import { log } from "@/common/Logger";
@@ -187,11 +189,15 @@ const timestamp = ref("");
 type MessageTokenOrText = AnyToken | string;
 const tokenizer = props.msg.getTokenizer();
 const tokens = ref<MessageTokenOrText[]>([]);
+const uniqueMessageParts = computed(() => getUniqueMessageParts(props.msg.body));
+const relevantLocalEmoteMap = computed(() =>
+	buildRelevantLocalEmoteMap(uniqueMessageParts.value, cosmetics.emotes, props.msg.nativeEmotes),
+);
+const tokenizationSignature = computed(() => buildTokenizationSignature(uniqueMessageParts.value));
 
 function doTokenize() {
 	if (!tokenizer) return;
-	const parts = getUniqueMessageParts(props.msg.body);
-	const signature = buildTokenizationSignature(parts);
+	const signature = tokenizationSignature.value;
 
 	const newTokens =
 		props.msg.tokenizationSignature === signature && props.msg.tokens.length
@@ -199,7 +205,7 @@ function doTokenize() {
 			: tokenizer.tokenize({
 					chatterMap: props.chatters ?? {},
 					emoteMap: props.emotes ?? {},
-					localEmoteMap: buildRelevantLocalEmoteMap(parts, cosmetics.emotes, props.msg.nativeEmotes),
+					localEmoteMap: relevantLocalEmoteMap.value,
 					showModifiers: showModifiers.value,
 			  });
 	// eslint-disable-next-line vue/no-mutating-props
@@ -235,14 +241,7 @@ function doPinMessage(): void {
 	pinChatMessage(msg.value.id, 1200)?.catch((err) => log.error("failed to pin chat message", err));
 }
 
-watch(
-	() => {
-		const parts = getUniqueMessageParts(props.msg.body);
-		return buildTokenizationSignature(parts);
-	},
-	() => doTokenize(),
-	{ immediate: true },
-);
+watch(tokenizationSignature, () => doTokenize(), { immediate: true });
 
 // eslint-disable-next-line vue/no-mutating-props
 props.msg.refresh = doTokenize;
@@ -392,6 +391,13 @@ function formatTimestamp(
 		second: showSeconds ? "numeric" : undefined,
 		...(hourCycle ? { hourCycle } : {}),
 	});
+
+	if (!timestampCache.has(key) && timestampCache.size >= MAX_TIMESTAMP_CACHE_SIZE) {
+		const oldestKey = timestampCache.keys().next().value;
+		if (oldestKey) {
+			timestampCache.delete(oldestKey);
+		}
+	}
 
 	timestampCache.set(key, formatted);
 	return formatted;

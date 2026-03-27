@@ -13,7 +13,7 @@
 			</div>
 
 			<UiScrollable>
-				<template v-for="(h, _, index) of highlights.getAllPhraseHighlights()" :key="h.id">
+				<template v-for="h of highlights.getAllPhraseHighlights()" :key="h.id">
 					<div class="phrase-item item">
 						<!-- Pattern -->
 						<div name="pattern" class="use-virtual-input" tabindex="0" @click="onInputFocus(h, 'pattern')">
@@ -62,37 +62,7 @@
 							<input v-model="h.color" type="color" @input="onColorChange(h, $event as InputEvent)" />
 						</div>
 
-						<div ref="interactRefPhrases" name="interact">
-							<button
-								ref="soundEffectButton"
-								class="sound-button"
-								:class="{ 'has-sound': !!h.soundFile }"
-								tabindex="0"
-							>
-								<CompactDiscIcon v-tooltip="'Set Custom Sound'" />
-								<div class="sound-options">
-									<UiFloating v-if="interactRefPhrases?.[index]" :anchor="interactRefPhrases[index]">
-										<button :active="!h.soundPath && !h.soundFile" @click="onRemoveSound(h)">
-											No Sound
-										</button>
-										<button :active="!!h.soundPath && !h.soundFile" @click="onUseDefaultSound(h)">
-											Default Sound
-										</button>
-										<button :active="!!h.soundFile">
-											<label>
-												Custom Sound{{ h.soundFile ? "" : "..." }}
-												<p v-if="h.soundFile">{{ h.soundFile.name }}</p>
-												<input
-													type="file"
-													accept="audio/midi, audio/mpeg, audio/ogg, audio/wav, audio/webm, audio/vorbis, audio/ogg"
-													@input="onUploadSoundFile(h, $event)"
-												/>
-											</label>
-										</button>
-									</UiFloating>
-								</div>
-							</button>
-
+						<div name="interact">
 							<CloseIcon v-tooltip="'Remove'" tabindex="0" @click="onDeleteHighlight(h)" />
 						</div>
 					</div>
@@ -120,7 +90,7 @@
 			</div>
 
 			<UiScrollable>
-				<template v-for="(h, _, index) of highlights.getAllBadgeHighlights()" :key="h.id">
+				<template v-for="h of highlights.getAllBadgeHighlights()" :key="h.id">
 					<div class="badge-item item">
 						<!-- Badge ID -->
 						<div
@@ -171,37 +141,7 @@
 							<input v-model="h.color" type="color" @input="onColorChange(h, $event as InputEvent)" />
 						</div>
 
-						<div ref="interactRefBadges" name="interact">
-							<button
-								ref="soundEffectButton"
-								class="sound-button"
-								:class="{ 'has-sound': !!h.soundFile }"
-								tabindex="0"
-							>
-								<CompactDiscIcon v-tooltip="'Set Custom Sound'" />
-								<div class="sound-options">
-									<UiFloating v-if="interactRefBadges?.[index]" :anchor="interactRefBadges[index]">
-										<button :active="!h.soundPath && !h.soundFile" @click="onRemoveSound(h)">
-											No Sound
-										</button>
-										<button :active="!!h.soundPath && !h.soundFile" @click="onUseDefaultSound(h)">
-											Default Sound
-										</button>
-										<button :active="!!h.soundFile">
-											<label>
-												Custom Sound{{ h.soundFile ? "" : "..." }}
-												<p v-if="h.soundFile">{{ h.soundFile.name }}</p>
-												<input
-													type="file"
-													accept="audio/midi, audio/mpeg, audio/ogg, audio/wav, audio/webm, audio/vorbis, audio/ogg"
-													@input="onUploadSoundFile(h, $event)"
-												/>
-											</label>
-										</button>
-									</UiFloating>
-								</div>
-							</button>
-
+						<div name="interact">
 							<CloseIcon v-tooltip="'Remove'" tabindex="0" @click="onDeleteHighlight(h)" />
 						</div>
 					</div>
@@ -232,7 +172,7 @@
 			</div>
 
 			<UiScrollable>
-				<template v-for="(h, _, index) of highlights.getAllUsernameHighlights()" :key="h.id">
+				<template v-for="h of highlights.getAllUsernameHighlights()" :key="h.id">
 					<div class="username-item item">
 						<!-- Username -->
 						<div name="pattern" class="use-virtual-input" tabindex="0" @click="onInputFocus(h, 'pattern')">
@@ -263,40 +203,7 @@
 							<input v-model="h.color" type="color" @input="onColorChange(h, $event as InputEvent)" />
 						</div>
 
-						<div ref="interactRefUsernames" name="interact">
-							<button
-								ref="soundEffectButton"
-								class="sound-button"
-								:class="{ 'has-sound': !!h.soundFile }"
-								tabindex="0"
-							>
-								<CompactDiscIcon v-tooltip="'Set Custom Sound'" />
-								<div class="sound-options">
-									<UiFloating
-										v-if="interactRefUsernames?.[index]"
-										:anchor="interactRefUsernames[index]"
-									>
-										<button :active="!h.soundPath && !h.soundFile" @click="onRemoveSound(h)">
-											No Sound
-										</button>
-										<button :active="!!h.soundPath && !h.soundFile" @click="onUseDefaultSound(h)">
-											Default Sound
-										</button>
-										<button :active="!!h.soundFile">
-											<label>
-												Custom Sound{{ h.soundFile ? "" : "..." }}
-												<p v-if="h.soundFile">{{ h.soundFile.name }}</p>
-												<input
-													type="file"
-													accept="audio/midi, audio/mpeg, audio/ogg, audio/wav, audio/webm, audio/vorbis, audio/ogg"
-													@input="onUploadSoundFile(h, $event)"
-												/>
-											</label>
-										</button>
-									</UiFloating>
-								</div>
-							</button>
-
+						<div name="interact">
 							<CloseIcon v-tooltip="'Remove'" tabindex="0" @click="onDeleteHighlight(h)" />
 						</div>
 					</div>
@@ -321,8 +228,6 @@ import { useChatProperties } from "@/composable/chat/useChatProperties";
 import FormCheckbox from "@/site/global/components/FormCheckbox.vue";
 import FormInput from "@/site/global/components/FormInput.vue";
 import CloseIcon from "@/assets/svg/icons/CloseIcon.vue";
-import CompactDiscIcon from "@/assets/svg/icons/CompactDiscIcon.vue";
-import UiFloating from "@/ui/UiFloating.vue";
 import UiScrollable from "@/ui/UiScrollable.vue";
 import { v4 as uuid } from "uuid";
 
@@ -338,9 +243,6 @@ const inputs = reactive({
 	label: new WeakMap<HighlightDef, InstanceType<typeof FormInput>>(),
 	version: new WeakMap<HighlightDef, InstanceType<typeof FormInput>>(),
 });
-const interactRefPhrases = ref<HTMLElement[]>();
-const interactRefUsernames = ref<HTMLElement[]>();
-const interactRefBadges = ref<HTMLElement[]>();
 
 const globalBadges = toRef(properties, "twitchBadgeSets").value?.globalsBySet;
 const globalBadgeObjects: Twitch.ChatBadge[] = [];
@@ -387,51 +289,6 @@ function onColorChange(h: HighlightDef, ev: InputEvent): void {
 	const color = ev.target.value;
 
 	h.color = color;
-	highlights.save();
-}
-
-function onUploadSoundFile(h: HighlightDef, ev: Event): void {
-	if (!(ev.target instanceof HTMLInputElement)) return;
-	const file = ev.target.files?.[0];
-	if (!file) return;
-
-	const reader = new FileReader();
-	reader.onload = (ev) => {
-		if (!(ev.target instanceof FileReader)) return;
-		const data = ev.target.result;
-		if (!(data instanceof ArrayBuffer)) return;
-		// file can't be more than 50KB (sanity value to avoid saturating IndexedDB)
-		if (data.byteLength > 50 * 1024) return alert("File is too large! (max 50KB)");
-
-		delete h.soundPath;
-		h.soundFile = {
-			name: file.name,
-			type: file.type,
-			data,
-		};
-
-		highlights.updateSoundData(h);
-		highlights.save();
-	};
-
-	ev.target.value = "";
-	reader.readAsArrayBuffer(file);
-}
-
-function onUseDefaultSound(h: HighlightDef): void {
-	delete h.soundFile;
-	delete h.soundDef;
-	h.soundPath = "#ping";
-
-	highlights.save();
-}
-
-function onRemoveSound(h: HighlightDef): void {
-	delete h.soundFile;
-	delete h.soundPath;
-	delete h.soundDef;
-
-	highlights.updateSoundData(h);
 	highlights.save();
 }
 
@@ -602,61 +459,6 @@ main.seventv-settings-custom-highlights {
 				column-gap: 1rem;
 				grid-auto-flow: column;
 				justify-self: end;
-
-				button {
-					all: unset;
-					cursor: pointer;
-				}
-
-				.sound-options {
-					display: none;
-				}
-
-				.sound-button.has-sound::after {
-					content: "";
-					position: absolute;
-					width: 0.75rem;
-					height: 0.75rem;
-					margin-left: -0.25rem;
-					margin-top: -0.25rem;
-					background-color: var(--seventv-accent);
-					border-radius: 50%;
-				}
-
-				.sound-button:focus-within > .sound-options {
-					position: fixed;
-					width: 9rem;
-					display: block;
-					z-index: 10000;
-
-					input {
-						display: none;
-					}
-
-					label {
-						cursor: pointer;
-					}
-
-					button {
-						width: 100%;
-						padding: 0.5rem;
-						background-color: var(--seventv-background-shade-2);
-						border: 0.25rem solid var(--seventv-background-shade-3);
-						transition: border-color 90ms ease-in-out;
-
-						p {
-							color: var(--seventv-muted);
-						}
-
-						&:hover {
-							border-color: var(--seventv-primary);
-						}
-
-						&[active="true"] {
-							color: var(--seventv-primary);
-						}
-					}
-				}
 
 				svg {
 					cursor: pointer;

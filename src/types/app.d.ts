@@ -19,6 +19,17 @@ declare namespace SevenTV {
 		displayName: string;
 	}
 
+	interface TVerinoChannelCosmeticSelection {
+		paintID: string;
+		badgeID: string;
+	}
+
+	interface TVerinoChannelCosmeticOverride extends TVerinoChannelCosmeticSelection {
+		channelID: string;
+		channelLogin: string;
+		channelDisplayName: string;
+	}
+
 	interface TVerinoTransportStatus {
 		state: "idle" | "connecting" | "connected" | "error";
 		reason: string;
@@ -231,7 +242,9 @@ declare namespace SevenTV {
 	interface UserStyle {
 		color: number;
 		paint_id?: ObjectID;
+		badge_id?: ObjectID;
 		paint?: CosmeticPaint;
+		badge?: CosmeticBadge;
 	}
 
 	interface UserConnection {
@@ -274,6 +287,7 @@ declare namespace SevenTV {
 		name: string;
 		color: number | null;
 		gradients: CosmeticPaintGradient[];
+		layers?: CosmeticPaintLayer[];
 		shadows?: CosmeticPaintShadow[];
 		flairs?: CosmeticPaintFlair[];
 		text?: CosmeticPaintText;
@@ -291,6 +305,65 @@ declare namespace SevenTV {
 		image_url?: string;
 	}
 	type AnyCosmetic = CosmeticBadge | CosmeticPaint;
+
+	interface CosmeticColor {
+		r: number;
+		g: number;
+		b: number;
+		a: number;
+		hex: string;
+	}
+
+	interface CosmeticAssetImage {
+		url: string;
+		mime: string;
+		size: number;
+		scale: number;
+		width: number;
+		height: number;
+		frameCount: number;
+	}
+
+	interface CosmeticPaintLayer {
+		id: string;
+		opacity: number;
+		ty: CosmeticPaintLayerType;
+	}
+
+	type CosmeticPaintLayerType =
+		| CosmeticPaintLayerTypeSingleColor
+		| CosmeticPaintLayerTypeLinearGradient
+		| CosmeticPaintLayerTypeRadialGradient
+		| CosmeticPaintLayerTypeImage;
+
+	interface CosmeticPaintLayerStop {
+		at: number;
+		color: CosmeticColor;
+	}
+
+	interface CosmeticPaintLayerTypeSingleColor {
+		__typename: "PaintLayerTypeSingleColor";
+		color: CosmeticColor;
+	}
+
+	interface CosmeticPaintLayerTypeLinearGradient {
+		__typename: "PaintLayerTypeLinearGradient";
+		angle: number;
+		repeating: boolean;
+		stops: CosmeticPaintLayerStop[];
+	}
+
+	interface CosmeticPaintLayerTypeRadialGradient {
+		__typename: "PaintLayerTypeRadialGradient";
+		repeating: boolean;
+		shape: "CIRCLE" | "ELLIPSE";
+		stops: CosmeticPaintLayerStop[];
+	}
+
+	interface CosmeticPaintLayerTypeImage {
+		__typename: "PaintLayerTypeImage";
+		images: CosmeticAssetImage[];
+	}
 
 	type CosmeticPaintCanvasRepeat = "" | "no-repeat" | "repeat-x" | "repeat-y" | "revert" | "round" | "space";
 
@@ -392,6 +465,7 @@ declare namespace SevenTV {
 	interface ImageFile {
 		name: string;
 		static_name?: string;
+		scale?: number;
 		width?: number;
 		height?: number;
 		frame_count?: number;

@@ -80,9 +80,10 @@ export class WorkerPort {
 				break;
 			}
 			case "CHANNEL_ACTIVE_CHATTER": {
-				const { channel } = data as TypedWorkerMessage<"CHANNEL_ACTIVE_CHATTER">;
+				const detail = data as TypedWorkerMessage<"CHANNEL_ACTIVE_CHATTER">;
+				if (!detail.channel) break;
 
-				this.driver.emit("set_channel_presence", channel, this);
+				this.driver.emit("set_channel_presence", detail, this);
 				break;
 			}
 			case "SYNC_TWITCH_SET": {

@@ -1,4 +1,4 @@
-import { ComputedRef, computed, reactive, ref, toRef, watch } from "vue";
+import { ComputedRef, computed, reactive, ref, toRaw, toRef, watch } from "vue";
 import { until, useTimeout } from "@vueuse/core";
 import { DecimalToStringRGBA } from "@/common/Color";
 import { log } from "@/common/Logger";
@@ -62,6 +62,268 @@ class CosmeticMap<T extends SevenTV.CosmeticKind> extends Map<string, SevenTV.Co
 
 let flushTimeout: number | null = null;
 const firstFlush = ref(false);
+
+function getOrCreateUserCosmeticMap<T extends "BADGE" | "PAINT">(kind: T, userID: string): CosmeticMap<T> {
+	const source = kind === "BADGE" ? data.userBadges : data.userPaints;
+	if (!source[userID]) {
+		(source[userID] as CosmeticMap<T>) = new CosmeticMap();
+	}
+
+	return source[userID] as CosmeticMap<T>;
+}
+
+function registerLocalCosmetic<T extends "BADGE" | "PAINT">(cosmetic: SevenTV.Cosmetic<T>): SevenTV.Cosmetic<T> {
+	const existing = data.cosmetics[cosmetic.id] as SevenTV.Cosmetic<T> | undefined;
+	if (existing) return existing;
+
+	const next = reactive(cloneLocalCosmetic(cosmetic)) as SevenTV.Cosmetic<T>;
+	data.cosmetics[next.id] = next;
+
+	if (next.kind === "PAINT") {
+		updatePaintStyle(next as SevenTV.Cosmetic<"PAINT">);
+	}
+
+	return next;
+}
+
+function cloneLocalCosmetic<T extends "BADGE" | "PAINT">(cosmetic: SevenTV.Cosmetic<T>): SevenTV.Cosmetic<T> {
+	const raw = toRaw(cosmetic) as SevenTV.Cosmetic<T>;
+
+	if (raw.kind === "PAINT") {
+		return cloneLocalPaintCosmetic(raw as SevenTV.Cosmetic<"PAINT">) as SevenTV.Cosmetic<T>;
+	}
+
+	return cloneLocalBadgeCosmetic(raw as SevenTV.Cosmetic<"BADGE">) as SevenTV.Cosmetic<T>;
+}
+
+function cloneLocalBadgeCosmetic(cosmetic: SevenTV.Cosmetic<"BADGE">): SevenTV.Cosmetic<"BADGE"> {
+	return {
+		id: cosmetic.id,
+		kind: cosmetic.kind,
+		provider: cosmetic.provider,
+		user_ids: cosmetic.user_ids ? [...cosmetic.user_ids] : undefined,
+		data: {
+			name: cosmetic.data.name,
+			tooltip: cosmetic.data.tooltip,
+			backgroundColor: cosmetic.data.backgroundColor,
+			replace: cosmetic.data.replace,
+			host: cloneImageHost(cosmetic.data.host),
+		},
+	};
+}
+
+function cloneLocalPaintCosmetic(cosmetic: SevenTV.Cosmetic<"PAINT">): SevenTV.Cosmetic<"PAINT"> {
+	return {
+		id: cosmetic.id,
+		kind: cosmetic.kind,
+		provider: cosmetic.provider,
+		user_ids: cosmetic.user_ids ? [...cosmetic.user_ids] : undefined,
+		data: {
+			name: cosmetic.data.name,
+			color: cosmetic.data.color,
+			gradients: (cosmetic.data.gradients ?? []).map(clonePaintGradient),
+			layers: cosmetic.data.layers?.map(clonePaintLayer),
+			shadows: cosmetic.data.shadows?.map(clonePaintShadow),
+			flairs: cosmetic.data.flairs?.map(clonePaintFlair),
+			text: cosmetic.data.text ? clonePaintText(cosmetic.data.text) : undefined,
+			function: cosmetic.data.function,
+			stops: cosmetic.data.stops?.map(clonePaintGradientStop),
+			repeat: cosmetic.data.repeat,
+			angle: cosmetic.data.angle,
+			shape: cosmetic.data.shape,
+			image_url: cosmetic.data.image_url,
+		},
+	};
+}
+
+function cloneImageHost(host: SevenTV.ImageHost): SevenTV.ImageHost {
+	return {
+		url: host.url,
+		srcset: host.srcset,
+		files: (host.files ?? []).map((file) => ({
+			name: file.name,
+			static_name: file.static_name,
+			scale: file.scale,
+			width: file.width,
+			height: file.height,
+			frame_count: file.frame_count,
+			size: file.size,
+			format: file.format,
+		})),
+	};
+}
+
+function clonePaintGradient(gradient: SevenTV.CosmeticPaintGradient): SevenTV.CosmeticPaintGradient {
+	return {
+		function: gradient.function,
+		canvas_repeat: gradient.canvas_repeat,
+		size: gradient.size ? [gradient.size[0], gradient.size[1]] : null,
+		at: gradient.at ? [gradient.at[0], gradient.at[1]] : undefined,
+		stops: (gradient.stops ?? []).map(clonePaintGradientStop),
+		image_url: gradient.image_url,
+		shape: gradient.shape,
+		angle: gradient.angle,
+		repeat: gradient.repeat,
+	};
+}
+
+function clonePaintGradientStop(stop: SevenTV.CosmeticPaintGradientStop): SevenTV.CosmeticPaintGradientStop {
+	return {
+		at: stop.at,
+		color: stop.color,
+	};
+}
+
+function clonePaintShadow(shadow: SevenTV.CosmeticPaintShadow): SevenTV.CosmeticPaintShadow {
+	return {
+		x_offset: shadow.x_offset,
+		y_offset: shadow.y_offset,
+		radius: shadow.radius,
+		color: shadow.color,
+	};
+}
+
+function clonePaintText(text: SevenTV.CosmeticPaintText): SevenTV.CosmeticPaintText {
+	return {
+		weight: text.weight,
+		shadows: text.shadows?.map(clonePaintShadow),
+		transform: text.transform,
+		stroke: text.stroke
+			? {
+					color: text.stroke.color,
+					width: text.stroke.width,
+			  }
+			: undefined,
+	};
+}
+
+function clonePaintFlair(flair: SevenTV.CosmeticPaintFlair): SevenTV.CosmeticPaintFlair {
+	return {
+		kind: flair.kind,
+		x_offset: flair.x_offset,
+		y_offset: flair.y_offset,
+		width: flair.width,
+		height: flair.height,
+		data: flair.data,
+	};
+}
+
+function clonePaintLayer(layer: SevenTV.CosmeticPaintLayer): SevenTV.CosmeticPaintLayer {
+	return {
+		id: layer.id,
+		opacity: layer.opacity,
+		ty: clonePaintLayerType(layer.ty),
+	};
+}
+
+function clonePaintLayerType(ty: SevenTV.CosmeticPaintLayerType): SevenTV.CosmeticPaintLayerType {
+	switch (ty.__typename) {
+		case "PaintLayerTypeSingleColor":
+			return {
+				__typename: ty.__typename,
+				color: cloneCosmeticColor(ty.color),
+			};
+		case "PaintLayerTypeLinearGradient":
+			return {
+				__typename: ty.__typename,
+				angle: ty.angle,
+				repeating: ty.repeating,
+				stops: ty.stops.map(clonePaintLayerStop),
+			};
+		case "PaintLayerTypeRadialGradient":
+			return {
+				__typename: ty.__typename,
+				repeating: ty.repeating,
+				shape: ty.shape,
+				stops: ty.stops.map(clonePaintLayerStop),
+			};
+		case "PaintLayerTypeImage":
+			return {
+				__typename: ty.__typename,
+				images: ty.images.map(cloneCosmeticAssetImage),
+			};
+	}
+}
+
+function clonePaintLayerStop(stop: SevenTV.CosmeticPaintLayerStop): SevenTV.CosmeticPaintLayerStop {
+	return {
+		at: stop.at,
+		color: cloneCosmeticColor(stop.color),
+	};
+}
+
+function cloneCosmeticColor(color: SevenTV.CosmeticColor): SevenTV.CosmeticColor {
+	return {
+		r: color.r,
+		g: color.g,
+		b: color.b,
+		a: color.a,
+		hex: color.hex,
+	};
+}
+
+function cloneCosmeticAssetImage(image: SevenTV.CosmeticAssetImage): SevenTV.CosmeticAssetImage {
+	return {
+		url: image.url,
+		mime: image.mime,
+		size: image.size,
+		scale: image.scale,
+		width: image.width,
+		height: image.height,
+		frameCount: image.frameCount,
+	};
+}
+
+function replaceProviderSelection<T extends "BADGE" | "PAINT">(
+	map: CosmeticMap<T>,
+	provider: SevenTV.Provider,
+	nextCosmetic: SevenTV.Cosmetic<T> | null,
+): void {
+	for (const [id, cosmetic] of Array.from(map.entries())) {
+		if (cosmetic.provider !== provider) continue;
+		if (nextCosmetic && id === nextCosmetic.id) continue;
+
+		map.delete(id);
+	}
+
+	if (nextCosmetic && !map.has(nextCosmetic.id)) {
+		map.set(nextCosmetic.id, nextCosmetic);
+	}
+}
+
+export function syncSelected7TVCosmeticsForUser(
+	userID: string,
+	selection: {
+		paint: SevenTV.Cosmetic<"PAINT"> | null;
+		badge: SevenTV.Cosmetic<"BADGE"> | null;
+	},
+): void {
+	if (!userID) return;
+
+	replaceProviderSelection(
+		getOrCreateUserCosmeticMap("PAINT", userID),
+		"7TV",
+		selection.paint ? registerLocalCosmetic(selection.paint) : null,
+	);
+	replaceProviderSelection(
+		getOrCreateUserCosmeticMap("BADGE", userID),
+		"7TV",
+		selection.badge ? registerLocalCosmetic(selection.badge) : null,
+	);
+}
+
+export function getSelected7TVCosmeticsForUser(userID: string): {
+	paintID: string;
+	badgeID: string;
+} {
+	const paint = Array.from(data.userPaints[userID]?.values() ?? []).find((cosmetic) => cosmetic.provider === "7TV");
+	const badge = Array.from(data.userBadges[userID]?.values() ?? []).find((cosmetic) => cosmetic.provider === "7TV");
+
+	return {
+		paintID: paint?.id ?? "",
+		badgeID: badge?.id ?? "",
+	};
+}
 
 /**
  * Set up cosmetics
@@ -220,7 +482,6 @@ db.ready().then(async () => {
 						const m = l[ent.platform_id] as CosmeticMap<"BADGE" | "PAINT">;
 						awaitCosmetic(ent.ref_id).then((cos) => {
 							if (m.has(ent.ref_id) || m.hasProvider(cos.provider)) return;
-
 							m.set(ent.ref_id, cos as never);
 						});
 					}
@@ -377,6 +638,8 @@ export function getCosmetics() {
 }
 
 let paintSheet: CSSStyleSheet | null = null;
+const paintRuleIndexes = new Map<string, number>();
+
 function getPaintStylesheet(): CSSStyleSheet | null {
 	if (paintSheet) return paintSheet;
 
@@ -390,6 +653,37 @@ function getPaintStylesheet(): CSSStyleSheet | null {
 	document.head.appendChild(s);
 
 	return (paintSheet = s.sheet ?? null);
+}
+
+function findPaintRuleIndex(sheet: CSSStyleSheet, selector: string): number {
+	const cachedIndex = paintRuleIndexes.get(selector);
+	if (cachedIndex !== undefined) {
+		const cachedRule = sheet.cssRules[cachedIndex];
+		if (cachedRule instanceof CSSStyleRule && cachedRule.selectorText === selector) {
+			return cachedIndex;
+		}
+
+		paintRuleIndexes.delete(selector);
+	}
+
+	for (let i = 0; i < sheet.cssRules.length; i++) {
+		const rule = sheet.cssRules[i];
+		if (!(rule instanceof CSSStyleRule)) continue;
+		if (rule.selectorText !== selector) continue;
+
+		paintRuleIndexes.set(selector, i);
+		return i;
+	}
+
+	return -1;
+}
+
+function shiftPaintRuleIndexes(removedIndex: number): void {
+	for (const [selector, index] of paintRuleIndexes) {
+		if (index > removedIndex) {
+			paintRuleIndexes.set(selector, index - 1);
+		}
+	}
 }
 
 // This defines CSS variables in our global paint stylesheet for the given paint
@@ -453,22 +747,25 @@ text-transform: ${paint.data.text.transform ?? "unset"};
 }
 `;
 
-	let currenIndex = -1;
-	for (let i = 0; i < sheet.cssRules.length; i++) {
-		const r = sheet.cssRules[i];
-		if (!(r instanceof CSSStyleRule)) continue;
-		if (r.selectorText !== selector) continue;
+	const currentIndex = findPaintRuleIndex(sheet, selector);
+	if (remove) {
+		if (currentIndex >= 0) {
+			sheet.deleteRule(currentIndex);
+			paintRuleIndexes.delete(selector);
+			shiftPaintRuleIndexes(currentIndex);
+		}
 
-		currenIndex = i;
-		break;
+		return;
 	}
-	if (remove) return;
 
-	if (currenIndex >= 0) {
-		sheet.deleteRule(currenIndex);
-		sheet.insertRule(text, currenIndex);
+	if (currentIndex >= 0) {
+		sheet.deleteRule(currentIndex);
+		sheet.insertRule(text, currentIndex);
+		paintRuleIndexes.set(selector, currentIndex);
 	} else {
-		sheet.insertRule(text, sheet.cssRules.length);
+		const nextIndex = sheet.cssRules.length;
+		sheet.insertRule(text, nextIndex);
+		paintRuleIndexes.set(selector, nextIndex);
 	}
 }
 
@@ -476,17 +773,32 @@ export function createGradientFromPaint(
 	gradient: SevenTV.CosmeticPaintGradient,
 ): [style: string, pos: string, size: string, repeat: string] {
 	const result = ["", "", "", ""] as [string, string, string, string];
-
+	const normalizedPosition =
+		gradient.at && gradient.at.length === 2 ? `${gradient.at[0] * 100}% ${gradient.at[1] * 100}%` : "";
 	const args = [] as string[];
 	switch (gradient.function) {
 		case "LINEAR_GRADIENT": // paint is linear gradient
 			args.push(`${gradient.angle ?? 0}deg`);
 			break;
 		case "RADIAL_GRADIENT": // paint is radial gradient
-			args.push(gradient.shape ?? "circle");
+			args.push(`${gradient.shape ?? "circle"}${normalizedPosition ? ` at ${normalizedPosition}` : ""}`);
 			break;
+		case "CONIC_GRADIENT": {
+			// paint is conic gradient
+			const conicArgs = [] as string[];
+			if (typeof gradient.angle === "number") {
+				conicArgs.push(`from ${gradient.angle}deg`);
+			}
+			if (normalizedPosition) {
+				conicArgs.push(`at ${normalizedPosition}`);
+			}
+			if (conicArgs.length) {
+				args.push(conicArgs.join(" "));
+			}
+			break;
+		}
 		case "URL": // paint is an image
-			args.push(gradient.image_url ?? "");
+			args.push(JSON.stringify(gradient.image_url ?? ""));
 			break;
 	}
 	let funcPrefix = "";
@@ -500,10 +812,15 @@ export function createGradientFromPaint(
 	}
 
 	result[0] = `${funcPrefix}${gradient.function.toLowerCase().replace("_", "-")}(${args.join(", ")})`;
-	result[1] = gradient.at && gradient.at.length === 2 ? `${gradient.at[0] * 100}% ${gradient.at[1] * 100}%` : "";
+	result[1] =
+		gradient.function === "RADIAL_GRADIENT" || gradient.function === "CONIC_GRADIENT"
+			? "0% 0%"
+			: normalizedPosition || "0% 0%";
 	result[2] =
-		gradient.size && gradient.size.length === 2 ? `${gradient.size[0] * 100}% ${gradient.size[1] * 100}%` : "";
-	result[3] = gradient.canvas_repeat ?? "unset";
+		gradient.size && gradient.size.length === 2
+			? `${gradient.size[0] * 100}% ${gradient.size[1] * 100}%`
+			: "auto auto";
+	result[3] = gradient.canvas_repeat || "no-repeat";
 
 	return result;
 }

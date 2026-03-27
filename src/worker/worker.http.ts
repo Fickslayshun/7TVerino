@@ -1,9 +1,14 @@
 // REST Helpers
 // Fetches initial data from API
 import { BitField, EmoteSetFlags } from "@/common/Flags";
-import { imageHostToSrcset } from "@/common/Image";
+import { imageHostToSrcset, resolve7TVEmoteFormat } from "@/common/Image";
 import { log } from "@/common/Logger";
 import { convertBttvEmoteSet, convertFFZEmoteSet, convertFfzBadges } from "@/common/Transform";
+import {
+	type TwitchRewardRedemptionResponse,
+	extractTwitchRewardRedemptionError,
+	isTwitchRewardRedemptionAccepted,
+} from "@/common/TwitchRewardRedemption";
 import { db } from "@/db/idb";
 import type { WorkerDriver } from "./worker.driver";
 import type { WorkerPort } from "./worker.port";
@@ -61,13 +66,19 @@ export class WorkerHttp {
 		driver.addEventListener("set_channel_presence", (ev) => {
 			if (!ev.port || !ev.port.platform || !ev.port.user || !ev.detail) return;
 
-			const lastPresenceAt = this.lastPresenceAt?.get(ev.detail.id);
-			if (lastPresenceAt && lastPresenceAt > Date.now() - 1e4) {
+			const { channel, includeSelf = false, force = false } = ev.detail;
+			if (!channel?.id) return;
+
+			const lastPresenceAt = this.lastPresenceAt?.get(channel.id);
+			if (!force && lastPresenceAt && lastPresenceAt > Date.now() - 1e4) {
 				return;
 			}
 
-			this.lastPresenceAt.set(ev.detail.id, Date.now());
-			this.writePresence(ev.port.platform, ev.port.user.id, ev.detail.id);
+			this.lastPresenceAt.set(channel.id, Date.now());
+			this.writePresence(ev.port.platform, ev.port.user.id, channel.id);
+			if (includeSelf) {
+				this.writePresence(ev.port.platform, ev.port.user.id, channel.id, true);
+			}
 		});
 		driver.addEventListener("imageformat_updated", async (ev) => {
 			if (!ev.port) return;
@@ -144,11 +155,7 @@ export class WorkerHttp {
 		});
 	}
 
-	private async fetchTverinoBadgeSets(
-		channelID: string,
-		clientID: string,
-		token: string,
-	): Promise<Twitch.BadgeSets> {
+	private async fetchTverinoBadgeSets(channelID: string, clientID: string, token: string): Promise<Twitch.BadgeSets> {
 		const [globalsBySet, channelsBySet] = await Promise.all([
 			this.fetchTverinoGlobalBadgeSets(clientID, token),
 			this.fetchTverinoChannelBadgeSets(channelID, clientID, token),
@@ -202,9 +209,7 @@ export class WorkerHttp {
 		return pending;
 	}
 
-	private async redeemTverinoCustomReward(
-		input: TypedWorkerMessage<"TVERINO_CUSTOM_REWARD_REDEEM">,
-	): Promise<void> {
+	private async redeemTverinoCustomReward(input: TypedWorkerMessage<"TVERINO_CUSTOM_REWARD_REDEEM">): Promise<void> {
 		const gqlPayload = JSON.stringify([
 			{
 				operationName: "RedeemCustomReward",
@@ -214,6 +219,7 @@ export class WorkerHttp {
 						cost: input.cost,
 						prompt: input.prompt ?? null,
 						rewardID: input.rewardID,
+						textInput: input.textInput ?? null,
 						title: input.title,
 						transactionID: input.transactionID ?? createHexToken(16),
 					},
@@ -236,12 +242,11 @@ export class WorkerHttp {
 					input.token,
 					false,
 				);
-				const bearerResult = attemptWithBearer[0];
-				if (bearerResult?.data?.redeemCommunityPointsCustomReward?.redemption?.id) {
+				if (isTwitchRewardRedemptionAccepted(attemptWithBearer)) {
 					return;
 				}
 
-				const bearerMessage = extractTwitchGraphQLError(attemptWithBearer);
+				const bearerMessage = extractTwitchRewardRedemptionError(attemptWithBearer);
 				if (bearerMessage) {
 					throw new Error(bearerMessage);
 				}
@@ -250,18 +255,20 @@ export class WorkerHttp {
 			}
 		}
 
-		const attemptWithCookies = await this.postTwitchRewardRedemptionRequest(gqlPayload, input.clientID, undefined, true).catch(
-			(error) => {
-				if (bearerError instanceof Error && bearerError.message.trim()) throw bearerError;
-				throw error;
-			},
-		);
-		const cookieResult = attemptWithCookies[0];
-		if (cookieResult?.data?.redeemCommunityPointsCustomReward?.redemption?.id) {
+		const attemptWithCookies = await this.postTwitchRewardRedemptionRequest(
+			gqlPayload,
+			input.clientID,
+			undefined,
+			true,
+		).catch((error) => {
+			if (bearerError instanceof Error && bearerError.message.trim()) throw bearerError;
+			throw error;
+		});
+		if (isTwitchRewardRedemptionAccepted(attemptWithCookies)) {
 			return;
 		}
 
-		const cookieMessage = extractTwitchGraphQLError(attemptWithCookies);
+		const cookieMessage = extractTwitchRewardRedemptionError(attemptWithCookies);
 		if (cookieMessage) {
 			throw new Error(cookieMessage);
 		}
@@ -278,7 +285,7 @@ export class WorkerHttp {
 		clientID: string,
 		token?: string,
 		includeCredentials = false,
-	): Promise<TwitchPersistedMutationResponse[]> {
+	): Promise<TwitchRewardRedemptionResponse[]> {
 		const headers = {
 			"Client-Id": clientID.trim(),
 			"Content-Type": "application/json",
@@ -299,7 +306,7 @@ export class WorkerHttp {
 			throw new Error(`Reward redemption failed: ${response.status}`);
 		}
 
-		return (await response.json()) as TwitchPersistedMutationResponse[];
+		return (await response.json()) as TwitchRewardRedemptionResponse[];
 	}
 
 	public async fetchConfig(): Promise<SevenTV.Config> {
@@ -327,14 +334,32 @@ export class WorkerHttp {
 			: Promise.resolve(void 0);
 		const providerSetPromises = [
 			["7TV", userPromise.then((es) => (es ? es.emote_set : null)).catch(() => void 0)],
-			["FFZ", port.providers.has("FFZ") ? frankerfacez.loadUserEmoteSet(channel.id).catch(() => void 0) : Promise.resolve(void 0)],
-			["BTTV", port.providers.has("BTTV") ? betterttv.loadUserEmoteSet(channel.id).catch(() => void 0) : Promise.resolve(void 0)],
+			[
+				"FFZ",
+				port.providers.has("FFZ")
+					? frankerfacez.loadUserEmoteSet(channel.id).catch(() => void 0)
+					: Promise.resolve(void 0),
+			],
+			[
+				"BTTV",
+				port.providers.has("BTTV")
+					? betterttv.loadUserEmoteSet(channel.id).catch(() => void 0)
+					: Promise.resolve(void 0),
+			],
 		] as [SevenTV.Provider, Promise<SevenTV.EmoteSet | null | undefined>][];
 
-		const existingChannel = await db.channels.where("id").equals(channel.id).first().catch(() => void 0);
+		const existingChannel = await db.channels
+			.where("id")
+			.equals(channel.id)
+			.first()
+			.catch(() => void 0);
 		const existingSetIDs = Array.isArray(existingChannel?.set_ids) ? [...existingChannel.set_ids] : [];
 		const existingSets = existingSetIDs.length
-			? await db.emoteSets.where("id").anyOf(existingSetIDs).toArray().catch(() => [] as SevenTV.EmoteSet[])
+			? await db.emoteSets
+					.where("id")
+					.anyOf(existingSetIDs)
+					.toArray()
+					.catch(() => [] as SevenTV.EmoteSet[])
 			: [];
 		const staleSetIDsByProvider = new Map<SevenTV.Provider, string[]>();
 		for (const set of existingSets) {
@@ -355,10 +380,13 @@ export class WorkerHttp {
 				set_ids: existingSetIDs,
 			}),
 			() =>
-				db.channels.where("id").equals(channel.id).modify({
-					platform: port.platform as Platform,
-					set_ids: existingSetIDs,
-				}),
+				db.channels
+					.where("id")
+					.equals(channel.id)
+					.modify({
+						platform: port.platform as Platform,
+						set_ids: existingSetIDs,
+					}),
 		);
 
 		const onResult = async (set: SevenTV.EmoteSet) => {
@@ -409,13 +437,13 @@ export class WorkerHttp {
 						if (!set) return;
 						return onResult(set);
 					})
-						.catch((err) =>
-							this.driver.log.error(
-								`<Net/Http> failed to load emote set from provider ${provider} in #${channel.username}`,
-								err,
-							),
+					.catch((err) =>
+						this.driver.log.error(
+							`<Net/Http> failed to load emote set from provider ${provider} in #${channel.username}`,
+							err,
 						),
-				),
+					),
+			),
 		).then(() => {
 			port?.postMessage("CHANNEL_SETS_FETCHED", {
 				channel,
@@ -564,13 +592,17 @@ export class WorkerHttp {
 		}
 		if (!personalSetIDs.length) return;
 
-		const loadedSets = await Promise.allSettled(personalSetIDs.map((setID) => this.API().seventv.loadEmoteSet(setID)));
+		const loadedSets = await Promise.allSettled(
+			personalSetIDs.map((setID) => this.API().seventv.loadEmoteSet(setID)),
+		);
 
 		for (const result of loadedSets) {
 			if (result.status !== "fulfilled") continue;
 
 			const set = result.value;
-			await db.withErrorFallback(db.emoteSets.put(set), () => db.emoteSets.where("id").equals(set.id).modify(set));
+			await db.withErrorFallback(db.emoteSets.put(set), () =>
+				db.emoteSets.where("id").equals(set.id).modify(set),
+			);
 
 			const entitlement = {
 				id: `${userID}:EMOTE_SET:${set.id}`,
@@ -607,7 +639,14 @@ export const seventv = {
 			ae.provider = set.provider;
 			ae.scope = "CHANNEL";
 
-			if (ae.data) ae.data.host.srcset = imageHostToSrcset(ae.data.host, "7TV", WorkerHttp.imageFormat, 2);
+			if (ae.data) {
+				ae.data.host.srcset = imageHostToSrcset(
+					ae.data.host,
+					"7TV",
+					resolve7TVEmoteFormat(ae.data.host, WorkerHttp.imageFormat),
+					2,
+				);
+			}
 			return ae;
 		});
 
@@ -633,7 +672,14 @@ export const seventv = {
 		set.emotes.map((ae) => {
 			ae.provider = set.provider;
 			ae.scope = set.scope;
-			if (ae.data) ae.data.host.srcset = imageHostToSrcset(ae.data.host, "7TV", WorkerHttp.imageFormat, 2);
+			if (ae.data) {
+				ae.data.host.srcset = imageHostToSrcset(
+					ae.data.host,
+					"7TV",
+					resolve7TVEmoteFormat(ae.data.host, WorkerHttp.imageFormat),
+					2,
+				);
+			}
 
 			return ae;
 		});
@@ -861,19 +907,6 @@ interface TwitchHelixBadgeResponse {
 	data: TwitchHelixBadgeSet[];
 }
 
-interface TwitchPersistedMutationResponse {
-	data?: {
-		redeemCommunityPointsCustomReward?: {
-			redemption?: {
-				id?: string;
-			} | null;
-		} | null;
-	};
-	errors?: {
-		message?: string;
-	}[];
-}
-
 async function fetchTwitchHelixBadgeSets(
 	url: string,
 	clientID: string,
@@ -924,18 +957,4 @@ function createHexToken(byteLength: number): string {
 	const bytes = new Uint8Array(byteLength);
 	crypto.getRandomValues(bytes);
 	return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function extractTwitchGraphQLError(payload: TwitchPersistedMutationResponse[]): string {
-	return payload
-		.flatMap((result) => result.errors ?? [])
-		.map((error) => error.message || "Unknown Twitch error")
-		.filter(Boolean)
-		.join("; ");
-}
-
-function hasUnauthenticatedError(payload: TwitchPersistedMutationResponse[]): boolean {
-	return payload.some((result) =>
-		(result.errors ?? []).some((error) => /unauthenticated/i.test(error.message || "")),
-	);
 }

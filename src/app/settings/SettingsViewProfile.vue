@@ -12,7 +12,7 @@
 			Try using the the custom 7TV commands if a channel where you have editor rights
 		</template>
 		<template v-else>
-			<button class="login-button" @click="login">Sign in</button>
+			<button class="login-button" @click="login">Log in</button>
 		</template>
 	</div>
 </template>

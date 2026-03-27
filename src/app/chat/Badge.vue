@@ -2,6 +2,7 @@
 	<div class="seventv-chat-badge">
 		<img
 			ref="imgRef"
+			:src="src"
 			:srcset="srcset"
 			:alt="alt"
 			:style="{
@@ -18,7 +19,9 @@
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { TWITCH_PROFILE_IMAGE_REGEX } from "@/common/Constant";
+import { imageHostToSrcset, resolve7TVBadgeFormat, resolveImageHostSrc } from "@/common/Image";
 import { useTooltip } from "@/composable/useTooltip";
+import { useUserAgent } from "@/composable/useUserAgent";
 import BadgeTooltip from "./BadgeTooltip.vue";
 
 export type TwitchChatBadgeWithData = Twitch.ChatBadge & { data?: string };
@@ -30,16 +33,22 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
+const { preferredFormat } = useUserAgent();
 
 const backgroundColor = ref("");
 const borderRadius = ref("");
+const appBadgeFormat = isApp(props.badge) ? resolve7TVBadgeFormat(props.badge.data.host, preferredFormat) : undefined;
+const src = {
+	twitch: (badge: Twitch.ChatBadge) => badge.image1x,
+	picture: (badge: Twitch.SharedChat) => badge.profileImageURL.replace(TWITCH_PROFILE_IMAGE_REGEX, "28x28"),
+	app: (badge: SevenTV.Cosmetic<"BADGE">) => resolveImageHostSrc(badge.data.host, "7TV", appBadgeFormat),
+}[props.type](props.badge as SevenTV.Cosmetic<"BADGE"> & Twitch.SharedChat & Twitch.ChatBadge);
 const srcset = {
 	twitch: (badge: Twitch.ChatBadge) => `${badge.image1x} 1x, ${badge.image2x} 2x, ${badge.image4x} 4x`,
 	picture: (badge: Twitch.SharedChat) =>
 		`${badge.profileImageURL.replace(TWITCH_PROFILE_IMAGE_REGEX, "28x28")} 1.6x,
 		${badge.profileImageURL.replace(TWITCH_PROFILE_IMAGE_REGEX, "70x70")} 3.8x`,
-	app: (badge: SevenTV.Cosmetic<"BADGE">) =>
-		badge.data.host.files.map((fi, i) => `https:${badge.data.host.url}/${fi.name} ${i + 1}x`).join(", "),
+	app: (badge: SevenTV.Cosmetic<"BADGE">) => imageHostToSrcset(badge.data.host, "7TV", appBadgeFormat),
 }[props.type](props.badge as SevenTV.Cosmetic<"BADGE"> & Twitch.SharedChat & Twitch.ChatBadge);
 
 const imgRef = ref<HTMLElement>();

@@ -29,7 +29,12 @@
 						</svg>
 					</button>
 
-					<button class="panel-header-action panel-close" type="button" aria-label="Close rewards panel" @click="emit('close')">
+					<button
+						class="panel-header-action panel-close"
+						type="button"
+						aria-label="Close rewards panel"
+						@click="emit('close')"
+					>
 						&times;
 					</button>
 				</div>
@@ -170,23 +175,12 @@
 								<button
 									class="panel-reward-confirm-button"
 									:class="{
-										redeemed: isRewardRedeemed(reward),
 										cooldown: isRewardOnCooldown(reward),
 									}"
 									type="button"
-									:disabled="
-										redeemingRewardId.length > 0 ||
-										isRewardRedeemed(reward) ||
-										!isRewardRedeemable(reward)
-									"
+									:disabled="redeemingRewardId.length > 0 || !isRewardRedeemable(reward)"
 									@click="confirmRedeem(reward)"
 								>
-									<span
-										v-if="isRewardRedeemed(reward)"
-										class="panel-reward-confirm-check"
-										aria-hidden="true"
-										>&#10003;</span
-									>
 									<span>{{ getRewardConfirmLabel(reward) }}</span>
 									<span v-if="showRewardConfirmCost(reward)" class="panel-reward-confirm-cost">
 										<TwitchChannelPointsIcon />
@@ -229,7 +223,6 @@ const props = defineProps<{
 	noticeIsError: boolean;
 	rewards: TVerinoChannelPointsReward[];
 	redeemableRewardIds: string[];
-	redeemedRewardId: string;
 	redeemingRewardId: string;
 	iconImage: string;
 	iconBackgroundColor: string;
@@ -274,15 +267,6 @@ const animatedBalanceDisplay = computed(() => {
 
 watch(
 	() => props.redeemingRewardId,
-	(nextRewardId) => {
-		if (nextRewardId) {
-			expandedRewardId.value = nextRewardId;
-		}
-	},
-);
-
-watch(
-	() => props.redeemedRewardId,
 	(nextRewardId) => {
 		if (nextRewardId) {
 			expandedRewardId.value = nextRewardId;
@@ -454,17 +438,12 @@ function isRewardRedeemable(reward: TVerinoChannelPointsReward): boolean {
 	return reward.isInStock;
 }
 
-function isRewardRedeemed(reward: TVerinoChannelPointsReward): boolean {
-	return props.redeemedRewardId === reward.id;
-}
-
 function isRewardClickable(reward: TVerinoChannelPointsReward): boolean {
 	return isRewardExpandable(reward) && !props.redeemingRewardId.length;
 }
 
 function toggleRewardExpansion(reward: TVerinoChannelPointsReward): void {
 	if (!isRewardClickable(reward)) return;
-	if (isRewardRedeemed(reward) && expandedRewardId.value === reward.id) return;
 	expandedRewardId.value = expandedRewardId.value === reward.id ? "" : reward.id;
 }
 
@@ -515,16 +494,16 @@ function getRewardStatusText(reward: TVerinoChannelPointsReward): string {
 }
 
 function getRewardConfirmLabel(reward: TVerinoChannelPointsReward): string {
-	if (isRewardRedeemed(reward)) return "Redeemed";
 	if (isRewardOnCooldown(reward)) return `Available in ${formatRewardCooldown(reward)}`;
 	if (reward.isPaused) return "Reward paused";
 	if (!reward.isEnabled) return "Reward disabled";
 	if (!reward.isInStock && !reward.cooldownExpiresAt) return "Temporarily unavailable";
+	if (reward.requiresUserInput) return "Write Message";
 	return "Redeem";
 }
 
 function showRewardConfirmCost(reward: TVerinoChannelPointsReward): boolean {
-	return !isRewardRedeemed(reward) && isRewardRedeemable(reward);
+	return isRewardRedeemable(reward);
 }
 </script>
 

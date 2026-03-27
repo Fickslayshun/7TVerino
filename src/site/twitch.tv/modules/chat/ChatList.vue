@@ -12,7 +12,12 @@
 		>
 			<template v-if="row.hydrated && row.msg.instance">
 				<ModSlider
-					v-if="!props.disableModSlider && isModSliderEnabled && ctx.actor.roles.has('MODERATOR') && row.msg.author"
+					v-if="
+						!props.disableModSlider &&
+						isModSliderEnabled &&
+						ctx.actor.roles.has('MODERATOR') &&
+						row.msg.author
+					"
 					:msg="row.msg"
 				>
 					<component :is="row.msg.instance" v-slot="slotProps" v-bind="row.msg.componentProps" :msg="row.msg">
@@ -26,7 +31,13 @@
 						/>
 					</component>
 				</ModSlider>
-				<component v-else :is="row.msg.instance" v-slot="slotProps" v-bind="row.msg.componentProps" :msg="row.msg">
+				<component
+					:is="row.msg.instance"
+					v-else
+					v-slot="slotProps"
+					v-bind="row.msg.componentProps"
+					:msg="row.msg"
+				>
 					<UserMessage
 						v-bind="slotProps"
 						:msg="row.msg"
@@ -128,7 +139,6 @@ const showModerationMessages = useConfig<boolean>("chat.mod_messages");
 const showMentionHighlights = useConfig("highlights.basic.mention");
 const showFirstTimeChatter = useConfig<boolean>("highlights.basic.first_time_chatter");
 const showSelfHighlights = useConfig<boolean>("highlights.basic.self");
-const shouldPlaySoundOnMention = useConfig<boolean>("highlights.basic.mention_sound");
 const shouldFlashTitleOnHighlight = useConfig<boolean>("highlights.basic.mention_title_flash");
 const showRestrictedLowTrustUser = useConfig<boolean>("highlights.basic.restricted_low_trust_user");
 const showMonitoredLowTrustUser = useConfig<boolean>("highlights.basic.monitored_low_trust_user");
@@ -288,6 +298,14 @@ useEventListener(
 	"scroll",
 	() => queueVirtualLayout(false),
 	{ passive: true },
+);
+
+watch(
+	() => displayedMessages.value.map((message) => message.sym),
+	(messageSyms) => {
+		pruneRowMeasurements(new Set(messageSyms));
+	},
+	{ immediate: true },
 );
 
 watch(
@@ -726,6 +744,21 @@ function getRowHeight(msg: ChatMessage): number {
 	return rowHeights.get(msg.sym) ?? estimatedRowHeight.value;
 }
 
+function pruneRowMeasurements(activeMessageSyms: Set<symbol>): void {
+	for (const [sym, element] of Array.from(rowElements.entries())) {
+		if (activeMessageSyms.has(sym)) continue;
+
+		rowObserver.unobserve(element);
+		rowLookup.delete(element);
+		rowElements.delete(sym);
+	}
+
+	for (const sym of Array.from(rowHeights.keys())) {
+		if (activeMessageSyms.has(sym)) continue;
+		rowHeights.delete(sym);
+	}
+}
+
 function setRowRef(sym: symbol, element: HTMLElement | null): void {
 	const previous = rowElements.get(sym);
 	if (previous && previous !== element) {
@@ -1011,10 +1044,12 @@ watchDebounced(
 			messages.add(m);
 
 			unhandledNodeMap.set(nodeId, node);
+			unhandled.delete(nodeId);
 		}
 
 		for (const nodeId of missingIds) {
 			unhandledNodeMap.delete(nodeId);
+			unhandled.delete(nodeId);
 		}
 	},
 	{ debounce: 100, immediate: true },
@@ -1070,8 +1105,8 @@ watch(pageVisibility, (state) => {
 });
 
 watch(
-	[identity, showMentionHighlights, shouldPlaySoundOnMention, shouldFlashTitleOnHighlight],
-	([identity, enabled, sound, flash]) => {
+	[identity, showMentionHighlights, shouldFlashTitleOnHighlight],
+	([identity, enabled, flash]) => {
 		const rxs = identity ? `\\b${identity.username}\\b` : null;
 		if (!rxs) return;
 
@@ -1083,7 +1118,6 @@ watch(
 					!!(identity && msg.author && msg.author.username !== identity.username && rx.test(msg.body)),
 				label: "Mentions You",
 				color: "#e13232",
-				soundPath: sound ? "#ping" : undefined,
 				flashTitleFn: flash
 					? (msg: ChatMessage) => `🔔 @${msg.author?.username ?? "A user"} mentioned you`
 					: undefined,
@@ -1102,7 +1136,6 @@ watch(
 					),
 				label: "Replying to You",
 				color: "#e13232",
-				soundPath: sound ? "#ping" : undefined,
 				flashTitleFn: flash
 					? (msg: ChatMessage) => `🔔 @${msg.author?.username ?? "A user"} replied to you`
 					: undefined,

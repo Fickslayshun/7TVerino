@@ -13,11 +13,7 @@
 
 		<section class="seventv-settings-backup-autosave">
 			<label class="seventv-settings-backup-autosave-switch" for="settings-backup-autosave">
-				<input
-					id="settings-backup-autosave"
-					v-model="tverinoAutoSave"
-					type="checkbox"
-				/>
+				<input id="settings-backup-autosave" v-model="tverinoAutoSave" type="checkbox" />
 				<span class="seventv-settings-backup-autosave-track"></span>
 			</label>
 			<div class="seventv-settings-backup-autosave-copy">
@@ -33,7 +29,9 @@
 
 		<div v-if="exportableTVerinoSettings.length > 0" class="seventv-settings-backup-status-container">
 			<section class="seventv-settings-backup-status-group">
-				<h5 class="seventv-settings-backup-status-title exportable">7TVerino settings able to export/import:</h5>
+				<h5 class="seventv-settings-backup-status-title exportable">
+					7TVerino settings able to export/import:
+				</h5>
 				<p
 					v-for="label of exportableTVerinoSettings"
 					:key="`exportable-${label}`"
@@ -50,17 +48,12 @@
 import { computed, ref } from "vue";
 import { log } from "@/common/Logger";
 import {
-	exportSettings,
-	importSettings,
-	useConfig,
-	useSettings,
-} from "@/composable/useSettings";
-import {
+	type SerializedSettings,
 	deserializeSettings,
 	downloadSettingsBackupBlobFallback,
 	requestBackgroundSettingsBackupDownload,
-	type SerializedSettings,
 } from "@/common/settingsBackup";
+import { exportSettings, importSettings, useConfig, useSettings } from "@/composable/useSettings";
 import UiButton from "@/ui/UiButton.vue";
 
 const errorMessage = ref<string>("");
@@ -72,6 +65,9 @@ const TVERINO_EXPORTABLE_SETTING_KEYS = [
 	"chat.tverino.timestamps",
 	"chat.tverino.auto_save",
 	"chat.tverino.workspace",
+	"chat.tverino.channel_cosmetics_default_paint_id",
+	"chat.tverino.channel_cosmetics_default_badge_id",
+	"chat.tverino.channel_cosmetics_overrides",
 	"chat.recent_emote_bar.mode",
 	"chat.recent_emote_bar.scope",
 	"chat.recent_emote_bar.history",
@@ -115,7 +111,11 @@ async function exportSettingsFile() {
 		try {
 			await requestBackgroundSettingsBackupDownload(file);
 		} catch (err) {
-			log.warn("<Settings>", "background export failed, falling back to browser download", (err as Error).message);
+			log.warn(
+				"<Settings>",
+				"background export failed, falling back to browser download",
+				(err as Error).message,
+			);
 			downloadSettingsBackupBlobFallback(file);
 		}
 	} catch (err) {

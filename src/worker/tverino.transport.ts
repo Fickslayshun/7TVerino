@@ -31,6 +31,7 @@ interface SubscriptionEntry {
 	ports: Map<symbol, number>;
 	recentHistoryPromise: Promise<void> | null;
 	recentHistoryLoaded: boolean;
+	lastChannelClearAt: number;
 }
 
 interface AuthState {
@@ -128,6 +129,7 @@ export class TVerinoChatTransport {
 				ports: new Map(),
 				recentHistoryPromise: null,
 				recentHistoryLoaded: false,
+				lastChannelClearAt: 0,
 			};
 			this.subscriptions.set(channel.id, entry);
 		}
@@ -328,6 +330,9 @@ export class TVerinoChatTransport {
 		const entry = this.getSubscriptionByLogin(channelLogin);
 		if (!entry) return;
 		const isHistorical = parsed.tags.historical === "1";
+		const timestamp = getParsedMessageTimestamp(parsed);
+
+		if (this.isStaleHistoricalEvent(entry, parsed, timestamp)) return;
 
 		this.prunePendingSends();
 
@@ -384,7 +389,7 @@ export class TVerinoChatTransport {
 			messageBody: cleanBody,
 			messageParts: buildMessageParts(cleanBody, parsed.tags.emotes),
 			messageType: isAction ? 1 : 0,
-			timestamp: Number(parsed.tags["tmi-sent-ts"] || Date.now()),
+			timestamp,
 			reply: buildReply(parsed.tags),
 			channelID: entry.channel.id,
 		} as Twitch.ChatMessage;
@@ -454,6 +459,7 @@ export class TVerinoChatTransport {
 		const channelLogin = parsed.params[0]?.replace(/^#/, "").toLowerCase();
 		const entry = this.getSubscriptionByLogin(channelLogin);
 		if (!entry || !parsed.tags["target-msg-id"]) return;
+		if (this.isStaleHistoricalEvent(entry, parsed)) return;
 
 		const message = {
 			id: `clearmsg:${parsed.tags["target-msg-id"]}`,
@@ -471,13 +477,18 @@ export class TVerinoChatTransport {
 		});
 	}
 
-	private onClearChat(parsed: ParsedIRCMessage): void {
+	private onClearChat(parsed: ParsedIRCMessage, options?: { historyOnly?: boolean }): void {
 		const channelLogin = parsed.params[0]?.replace(/^#/, "").toLowerCase();
 		const entry = this.getSubscriptionByLogin(channelLogin);
 		if (!entry) return;
 
+		const timestamp = getParsedMessageTimestamp(parsed);
 		const targetLogin = parsed.trailing?.trim().toLowerCase();
 		if (!targetLogin) {
+			if (this.isStaleHistoricalEvent(entry, parsed, timestamp)) return;
+			entry.lastChannelClearAt = Math.max(entry.lastChannelClearAt, timestamp);
+			if (options?.historyOnly) return;
+
 			this.postToChannel(entry.channel.id, "TVERINO_CHAT_MESSAGE", {
 				channelID: entry.channel.id,
 				message: {
@@ -487,6 +498,8 @@ export class TVerinoChatTransport {
 			});
 			return;
 		}
+
+		if (this.isStaleHistoricalEvent(entry, parsed, timestamp)) return;
 
 		const duration = Number(parsed.tags["ban-duration"] || 0);
 		const message = {
@@ -590,10 +603,35 @@ export class TVerinoChatTransport {
 				entry.recentHistoryLoaded = true;
 				if (!messages.length) return;
 
+				const replayBuffer: ParsedIRCMessage[] = [];
+
 				for (const line of messages) {
 					const parsed = parseIRCMessage(line);
 					if (!parsed) continue;
+					if (!parsed.tags.historical) {
+						parsed.tags.historical = "1";
+					}
 
+					switch (parsed.command) {
+						case "PRIVMSG":
+						case "CLEARMSG":
+							replayBuffer.push(parsed);
+							break;
+						case "CLEARCHAT":
+							if (parsed.trailing?.trim()) {
+								replayBuffer.push(parsed);
+								break;
+							}
+
+							// Treat full-channel clears from recent history as a snapshot boundary.
+							// They should not render as a fresh live clear in remote TVerino tabs.
+							this.onClearChat(parsed, { historyOnly: true });
+							replayBuffer.length = 0;
+							break;
+					}
+				}
+
+				for (const parsed of replayBuffer) {
 					switch (parsed.command) {
 						case "PRIVMSG":
 							this.onPrivmsg(parsed);
@@ -606,7 +644,6 @@ export class TVerinoChatTransport {
 							break;
 					}
 				}
-
 			})
 			.catch(() => void 0)
 			.finally(() => {
@@ -699,6 +736,14 @@ export class TVerinoChatTransport {
 			port.postMessage(type, data as never);
 		}
 	}
+
+	private isStaleHistoricalEvent(
+		entry: SubscriptionEntry,
+		parsed: ParsedIRCMessage,
+		timestamp = getParsedMessageTimestamp(parsed),
+	): boolean {
+		return parsed.tags.historical === "1" && entry.lastChannelClearAt > 0 && timestamp <= entry.lastChannelClearAt;
+	}
 }
 
 function parseIRCMessage(line: string): ParsedIRCMessage | null {
@@ -778,6 +823,11 @@ function unwrapActionMessage(value: string): string {
 
 function normalizeAuthToken(value: string): string {
 	return value.trim().replace(/^oauth:/i, "");
+}
+
+function getParsedMessageTimestamp(parsed: ParsedIRCMessage): number {
+	const timestamp = Number(parsed.tags["tmi-sent-ts"]);
+	return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : Date.now();
 }
 
 function buildSelfState(parsed: ParsedIRCMessage, auth: AuthState | null): SelfState {

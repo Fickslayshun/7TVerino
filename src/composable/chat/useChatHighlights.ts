@@ -1,12 +1,10 @@
-import { inject, markRaw, reactive, ref, toRaw, watch } from "vue";
+import { markRaw, reactive, ref, toRaw, watch } from "vue";
 import { toReactive, until, useDocumentVisibility, useIntervalFn, useTitle } from "@vueuse/core";
 import { debounceFn } from "@/common/Async";
-import { SITE_ASSETS_URL } from "@/common/Constant";
 import { log } from "@/common/Logger";
 import type { ChatMessage } from "@/common/chat/ChatMessage";
 import type { WorkerSafeHighlightDef } from "@/common/chat/PerformanceProcessor";
 import { ChannelContext } from "@/composable/channel/useChannelContext";
-import { Sound, useSound } from "@/composable/useSound";
 import { useConfig } from "../useSettings";
 
 interface ChatHighlights {
@@ -38,13 +36,6 @@ export interface HighlightDef {
 	caseSensitive?: boolean;
 	flashTitle?: boolean;
 	flashTitleFn?: (msg: ChatMessage) => string;
-	soundPath?: string;
-	soundDef?: Sound;
-	soundFile?: {
-		name: string;
-		type: string;
-		data: ArrayBuffer;
-	};
 	persist?: boolean;
 	phrase?: boolean;
 	username?: boolean;
@@ -68,20 +59,25 @@ interface HighlightMatchMemo {
 	badgeValues?: string[];
 }
 
+interface LegacyHighlightSoundFields {
+	soundPath?: string;
+	soundDef?: unknown;
+	soundFile?: {
+		name: string;
+		type: string;
+		data: ArrayBuffer;
+	};
+}
+
 const m = new WeakMap<ChannelContext, ChatHighlights>();
 
 const customHighlights = useConfig<Map<string, HighlightDef>>("highlights.custom");
-const soundVolume = useConfig<number>("highlights.sound_volume");
 
 export function useChatHighlights(ctx: ChannelContext) {
 	const visibility = useDocumentVisibility();
 
-	const assetsBase = inject(SITE_ASSETS_URL, "");
-	const systemSounds = reactive<Record<string, Sound>>({
-		ping: useSound(assetsBase + "/sound/ping.ogg"),
-	});
-
 	let data = m.get(ctx);
+	let needsLegacySoundCleanup = false;
 	if (!data) {
 		data = reactive<ChatHighlights>({
 			highlights: {},
@@ -103,6 +99,7 @@ export function useChatHighlights(ctx: ChannelContext) {
 			customHighlights,
 			(h) => {
 				if (!data) return;
+				let strippedLegacySound = false;
 
 				// Clear all custom highlights
 				for (const [k, v] of Object.entries(data.highlights)) {
@@ -112,12 +109,14 @@ export function useChatHighlights(ctx: ChannelContext) {
 				}
 
 				for (const [, v] of h) {
-					data.highlights[v.id] = v;
-					updateSoundData(v);
-					updateFlashTitle(v);
+					const sanitized = sanitizeLegacyHighlight(v);
+					data.highlights[sanitized.highlight.id] = sanitized.highlight;
+					updateFlashTitle(sanitized.highlight);
+					strippedLegacySound = strippedLegacySound || sanitized.stripped;
 				}
 
 				rebuildCompiledHighlights();
+				needsLegacySoundCleanup = needsLegacySoundCleanup || strippedLegacySound;
 			},
 			{
 				immediate: true,
@@ -132,24 +131,19 @@ export function useChatHighlights(ctx: ChannelContext) {
 
 		const items: [string, HighlightDef][] = Array.from(Object.values(data.highlights))
 			.filter((h) => h.persist)
-			.map((h) => [
-				h.id,
-				toRaw({
-					...h,
-					soundFile: toRaw(h.soundFile),
-					soundDef: undefined,
-					flashTitleFn: undefined,
-				}),
-			]);
+			.map((h) => [h.id, stripSerializableHighlightFields(h)]);
 
 		customHighlights.value = new Map(items);
 	}, 250);
+
+	if (needsLegacySoundCleanup) {
+		save();
+	}
 
 	function define(id: string, def: Omit<HighlightDef, "id">, persist?: boolean): HighlightDef {
 		if (!data) return {} as HighlightDef;
 
 		const h = (data.highlights[id] = { ...def, id, persist });
-		updateSoundData(h);
 		updateFlashTitle(h);
 		rebuildCompiledHighlights();
 
@@ -160,23 +154,6 @@ export function useChatHighlights(ctx: ChannelContext) {
 		save();
 
 		return h;
-	}
-
-	function updateSoundData(h: HighlightDef) {
-		if (!h.soundFile) {
-			if (h.soundPath?.startsWith("#") && systemSounds[h.soundPath.slice(1)]) {
-				h.soundDef = systemSounds[h.soundPath.slice(1)];
-			}
-
-			return;
-		}
-
-		const blob = new Blob([h.soundFile.data], { type: h.soundFile.type });
-		const url = URL.createObjectURL(blob);
-
-		h.soundPath = url;
-		h.soundDef = useSound(url);
-		return url;
 	}
 
 	function updateFlashTitle(h: HighlightDef) {
@@ -306,10 +283,6 @@ export function useChatHighlights(ctx: ChannelContext) {
 		if (ok) {
 			msg.setHighlight(h.color, h.label);
 
-			if (h.soundDef && !msg.historical) {
-				h.soundDef.play(soundVolume.value / 100);
-			}
-
 			if (h.flashTitleFn && !msg.historical) {
 				setFlash(h, msg);
 			}
@@ -318,7 +291,7 @@ export function useChatHighlights(ctx: ChannelContext) {
 		return ok;
 	}
 
-	// Play a sound and flash the title when the actor is mentioned
+	// Flash the title when the actor is mentioned
 	const newTitle = ref("");
 	const lastKnownTitle = ref(document.title);
 	let step = 0;
@@ -401,8 +374,31 @@ export function useChatHighlights(ctx: ChannelContext) {
 		updateId,
 		checkMatch,
 		checkAll,
-		updateSoundData,
 		updateFlashTitle,
+	};
+}
+
+function stripSerializableHighlightFields(highlight: HighlightDef): HighlightDef {
+	const raw = { ...(toRaw(highlight) as HighlightDef & LegacyHighlightSoundFields) };
+	delete raw.flashTitleFn;
+	delete raw.soundDef;
+	delete raw.soundFile;
+	delete raw.soundPath;
+	return raw;
+}
+
+function sanitizeLegacyHighlight(highlight: HighlightDef): {
+	highlight: HighlightDef;
+	stripped: boolean;
+} {
+	const raw = { ...(toRaw(highlight) as HighlightDef & LegacyHighlightSoundFields) };
+	const stripped = "soundDef" in raw || "soundFile" in raw || "soundPath" in raw;
+	delete raw.soundDef;
+	delete raw.soundFile;
+	delete raw.soundPath;
+	return {
+		highlight: raw,
+		stripped,
 	};
 }
 

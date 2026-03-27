@@ -108,7 +108,7 @@
 									</template>
 								</div>
 								<span class="seventv-settings-sidebar-profile-text seventv-settings-expanded">
-									{{ actor.token && actor.user ? actor.user.display_name : "SIGN IN" }}
+									{{ actor.token && actor.user ? actor.user.display_name : "LOG IN" }}
 								</span>
 							</div>
 							<div
@@ -215,6 +215,15 @@ function sortNodes(filter?: string) {
 
 			if (soa != sob) return soa.localeCompare(sob);
 
+			const la = normalizeNodeSortLabel(a);
+			const lb = normalizeNodeSortLabel(b);
+			if (la !== lb) {
+				return la.localeCompare(lb, undefined, {
+					sensitivity: "base",
+					numeric: true,
+				});
+			}
+
 			const pa = Number(a.path.at(2) ?? 0);
 			const pb = Number(b.path.at(2) ?? 0);
 
@@ -242,6 +251,10 @@ function sortNodes(filter?: string) {
 
 function getOrder(c: string | undefined) {
 	return c && isOrdered(c) ? categoryOrder[c] : -1;
+}
+
+function normalizeNodeSortLabel(node: SevenTV.SettingNode): string {
+	return typeof node.label === "string" ? node.label.trim() : "";
 }
 
 function isOrdered(c: string): c is keyof typeof categoryOrder {
